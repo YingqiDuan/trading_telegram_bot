@@ -73,7 +73,7 @@ async def get_crypto_price(coin_id: str) -> dict:
     params = {"ids": coin_id.lower(), "vs_currencies": "usd"}
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(COINGECKECKO_API_URL, params=params) as resp:
+            async with session.get(COINGECKO_API_URL, params=params) as resp:
                 data = await resp.json()
                 if coin_id.lower() in data:
                     return {"price": data[coin_id.lower()]["usd"]}

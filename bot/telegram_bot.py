@@ -7,6 +7,7 @@ from telegram.ext import (
     ConversationHandler,
     ContextTypes,
     filters,
+    BaseHandler,
 )
 from config import TELEGRAM_BOT_TOKEN
 from services.solana_service import SolanaService
@@ -25,12 +26,128 @@ from bot.command_handlers import (
     cmd_slot,
     get_command_list,
 )
+from typing import cast, List
 
 logger = logging.getLogger(__name__)
 
 # Define conversation states
 SELECT_OPTION = 0
 WAITING_PARAM = 1
+
+
+class CommandProcessor:
+    """Helper class to process and manage commands"""
+
+    def __init__(self):
+        """Initialize command processor with command definitions"""
+        self.command_handlers = {
+            "sol_balance": {
+                "handler": cmd_sol_balance,
+                "param_prompt": "Please enter wallet address:",
+                "requires_param": True,
+            },
+            "token_info": {
+                "handler": cmd_token_info,
+                "param_prompt": "Please enter token address:",
+                "requires_param": True,
+            },
+            "account_details": {
+                "handler": cmd_account_details,
+                "param_prompt": "Please enter account address:",
+                "requires_param": True,
+            },
+            "transaction": {
+                "handler": cmd_transaction,
+                "param_prompt": "Please enter transaction signature:",
+                "requires_param": True,
+            },
+            "recent_tx": {
+                "handler": cmd_recent_transactions,
+                "param_prompt": "Please enter wallet address and optional limit:",
+                "requires_param": True,
+            },
+            "validators": {
+                "handler": cmd_validators,
+                "param_prompt": "Please enter number of validators to display (optional) or press Enter for default:",
+                "requires_param": False,
+            },
+            "token_accounts": {
+                "handler": cmd_token_accounts,
+                "param_prompt": "Please enter wallet address:",
+                "requires_param": True,
+            },
+            "latest_block": {"handler": cmd_latest_block, "requires_param": False},
+            "network_status": {"handler": cmd_network_status, "requires_param": False},
+            "slot": {"handler": cmd_slot, "requires_param": False},
+            "help": {"handler": cmd_help, "requires_param": False},
+        }
+
+    def get_command_handler(self, command):
+        """Get handler for a specific command
+
+        Args:
+            command: Command name
+
+        Returns:
+            Dict with command handler and metadata or None if not found
+        """
+        return self.command_handlers.get(command)
+
+    def requires_parameter(self, command):
+        """Check if a command requires parameters
+
+        Args:
+            command: Command name
+
+        Returns:
+            Boolean indicating if command requires parameters
+        """
+        cmd_info = self.command_handlers.get(command)
+        if not cmd_info:
+            return False
+        return cmd_info.get("requires_param", False)
+
+    def get_parameter_prompt(self, command):
+        """Get the prompt text for a command's parameter
+
+        Args:
+            command: Command name
+
+        Returns:
+            Prompt text or None if not applicable
+        """
+        cmd_info = self.command_handlers.get(command)
+        if not cmd_info:
+            return None
+        return cmd_info.get("param_prompt")
+
+    async def execute_command(self, command, update, context):
+        """Execute a command with the given parameters
+
+        Args:
+            command: Command name
+            update: Telegram update object
+            context: Callback context
+
+        Returns:
+            bool: True if command was executed successfully, False otherwise
+        """
+        if not update.message:
+            logger.warning("Cannot execute command, message is None")
+            return False
+
+        cmd_info = self.get_command_handler(command)
+        if not cmd_info:
+            await update.message.reply_text(f"Unknown command: {command}")
+            return False
+
+        try:
+            await cmd_info["handler"](update, context)
+            return True
+        except Exception as e:
+            logger.error(f"Error executing command {command}: {e}")
+            await update.message.reply_text(f"Error executing command: {e}")
+            return False
 
 
 class SolanaTelegramBot:
@@ -40,27 +157,21 @@ class SolanaTelegramBot:
         """Initialize the Telegram bot"""
         self.solana_service = SolanaService()
         self.openai_service = OpenAIService()
+        self.command_processor = CommandProcessor()
         self.app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
         self._setup_handlers()
 
     def _setup_handlers(self):
         """Set up bot command handlers and conversation flow"""
         # Set up conversation handler for both natural language and commands
+        entry_points: List[BaseHandler] = [CommandHandler("start", self.start_command)]
+
+        # Add all command handlers as entry points
+        for cmd_name in self.command_processor.command_handlers:
+            entry_points.append(CommandHandler(cmd_name, self.param_handler))
+
         conv_handler = ConversationHandler(
-            entry_points=[
-                CommandHandler("start", self.start_command),
-                CommandHandler("sol_balance", self.param_handler),
-                CommandHandler("token_info", self.param_handler),
-                CommandHandler("account_details", self.param_handler),
-                CommandHandler("transaction", self.param_handler),
-                CommandHandler("recent_tx", self.param_handler),
-                CommandHandler("validators", self.param_handler),
-                CommandHandler("token_accounts", self.param_handler),
-                CommandHandler("latest_block", cmd_latest_block),
-                CommandHandler("network_status", cmd_network_status),
-                CommandHandler("slot", cmd_slot),
-                CommandHandler("help", cmd_help),
-            ],
+            entry_points=entry_points,
             states={
                 SELECT_OPTION: [
                     MessageHandler(filters.TEXT & ~filters.COMMAND, self.input_handler)
@@ -94,30 +205,22 @@ class SolanaTelegramBot:
         logger.info(f"Param handler called for command: {command}")
 
         # Check if parameters are provided
-        if not context.args or len(context.args) < 1:
+        if (
+            not context.args or len(context.args) < 1
+        ) and self.command_processor.requires_parameter(command):
             # Store the command in user_data for later
             if context.user_data is not None:
                 context.user_data["pending_command"] = command
                 logger.info(f"Storing pending command: {command}")
 
             # Ask for the required parameter based on command
-            if command in ["sol_balance", "account_details", "token_accounts"]:
-                await update.message.reply_text(f"请输入钱包地址:")
-            elif command == "token_info":
-                await update.message.reply_text(f"请输入代币地址:")
-            elif command == "transaction":
-                await update.message.reply_text(f"请输入交易签名:")
-            elif command == "recent_tx":
-                await update.message.reply_text(f"请输入钱包地址和可选的交易数量限制:")
-            elif command == "validators":
-                await update.message.reply_text(
-                    f"请输入要显示的验证者数量(可选)，或直接按回车使用默认值:"
-                )
+            prompt = self.command_processor.get_parameter_prompt(command)
+            if prompt:
+                await update.message.reply_text(prompt)
+                return WAITING_PARAM
 
-            return WAITING_PARAM
-
-        # If parameters are provided, call the appropriate command handler
-        result = await self._execute_command(command, update, context)
+        # If parameters are provided or not required, call the appropriate command handler
+        result = await self.command_processor.execute_command(command, update, context)
         return SELECT_OPTION if result else ConversationHandler.END
 
     async def continue_with_param(
@@ -132,7 +235,7 @@ class SolanaTelegramBot:
             logger.warning("No pending command found in user_data")
             if update.message:
                 await update.message.reply_text(
-                    "抱歉，无法处理您的请求。请重新输入命令。"
+                    "Sorry, I couldn't process your request. Please try again with a command."
                 )
             return SELECT_OPTION
 
@@ -142,8 +245,8 @@ class SolanaTelegramBot:
         logger.info(f"Processing parameter for command {command}: {param_text}")
 
         # If user entered cancel, abort the operation
-        if param_text.lower() in ["cancel", "取消"]:
-            await update.message.reply_text("操作已取消。")
+        if param_text.lower() in ["cancel"]:
+            await update.message.reply_text("Operation cancelled.")
             if context.user_data is not None:
                 context.user_data.pop("pending_command", None)
             return SELECT_OPTION
@@ -152,7 +255,7 @@ class SolanaTelegramBot:
         context.args = param_text.split()
 
         # Execute the command
-        result = await self._execute_command(command, update, context)
+        result = await self.command_processor.execute_command(command, update, context)
 
         # Clear the pending command
         if context.user_data is not None:
@@ -160,81 +263,21 @@ class SolanaTelegramBot:
 
         return SELECT_OPTION
 
-    async def _execute_command(
-        self, command: str, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> bool:
-        """Execute a command with the given parameters
-
-        Returns:
-            bool: True if command was executed successfully, False otherwise
-        """
-        if not update.message:
-            logger.warning("Cannot execute command, message is None")
-            return False
-
-        try:
-            if command == "sol_balance":
-                await cmd_sol_balance(update, context)
-            elif command == "token_info":
-                await cmd_token_info(update, context)
-            elif command == "account_details":
-                await cmd_account_details(update, context)
-            elif command == "transaction":
-                await cmd_transaction(update, context)
-            elif command == "recent_tx":
-                await cmd_recent_transactions(update, context)
-            elif command == "validators":
-                await cmd_validators(update, context)
-            elif command == "token_accounts":
-                await cmd_token_accounts(update, context)
-            else:
-                await update.message.reply_text(f"未知命令: {command}")
-                return False
-            return True
-        except Exception as e:
-            logger.error(f"Error executing command {command}: {e}")
-            await update.message.reply_text(f"执行命令时出错: {e}")
-            return False
-
     async def handle_command_in_conversation(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ):
         """Handle commands that come in during a conversation"""
-        if not update.message:
-            return SELECT_OPTION
-
-        if not update.message.text:
+        if not update.message or not update.message.text:
             return SELECT_OPTION
 
         command = update.message.text.split()[0][1:]
 
-        # Handle direct commands
-        if command == "latest_block":
-            await cmd_latest_block(update, context)
-        elif command == "network_status":
-            await cmd_network_status(update, context)
-        elif command == "slot":
-            await cmd_slot(update, context)
-        elif command == "help":
-            await cmd_help(update, context)
-        elif command in [
-            "sol_balance",
-            "token_info",
-            "account_details",
-            "transaction",
-            "recent_tx",
-            "validators",
-            "token_accounts",
-        ]:
-            return await self.param_handler(update, context)
-        elif command == "cancel":
+        if command == "cancel":
             await self.cancel_handler(update, context)
             return SELECT_OPTION
-        else:
-            if update.message:
-                await update.message.reply_text(f"未知命令: {command}")
 
-        return SELECT_OPTION
+        # For all other commands, pass to param_handler
+        return await self.param_handler(update, context)
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command: introduce bot functionality"""
@@ -442,7 +485,7 @@ class SolanaTelegramBot:
     async def cancel_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /cancel command"""
         if update.message:
-            await update.message.reply_text("操作已取消。")
+            await update.message.reply_text("Operation cancelled.")
 
             # Clear any pending command
             if context.user_data is not None and "pending_command" in context.user_data:
@@ -456,7 +499,7 @@ class SolanaTelegramBot:
         """Handle unrecognized input"""
         if update.message:
             await update.message.reply_text(
-                "请使用自然语言输入您的请求，或使用直接命令。如需帮助，请输入 /help"
+                "Please use natural language for your request or use direct commands. For help, type /help"
             )
         return SELECT_OPTION
 

@@ -8,10 +8,22 @@ from telegram.ext import (
     ContextTypes,
     filters,
     BaseHandler,
+    CallbackQueryHandler,
 )
-from config import TELEGRAM_BOT_TOKEN
+import sys
+import os
+
+# Add the parent directory to the path to allow importing modules from there
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import (
+    TELEGRAM_BOT_TOKEN,
+    MAX_TRANSACTIONS_DISPLAY,
+    DEFAULT_TRANSACTIONS_DISPLAY,
+)
 from services.solana_service import SolanaService
 from services.openai_service import OpenAIService
+from services.rate_limiter import RateLimiter
+from services.user_service import UserService
 from bot.command_handlers import (
     cmd_sol_balance,
     cmd_token_info,
@@ -25,6 +37,12 @@ from bot.command_handlers import (
     cmd_token_accounts,
     cmd_slot,
     get_command_list,
+    cmd_add_wallet,
+    cmd_verify_wallet,
+    cmd_list_wallets,
+    cmd_remove_wallet,
+    cmd_my_balance,
+    handle_verification_callback,
 )
 from typing import cast, List
 
@@ -80,6 +98,29 @@ class CommandProcessor:
             "network_status": {"handler": cmd_network_status, "requires_param": False},
             "slot": {"handler": cmd_slot, "requires_param": False},
             "help": {"handler": cmd_help, "requires_param": False},
+            "add_wallet": {
+                "handler": cmd_add_wallet,
+                "param_prompt": "Please enter your wallet address and optional label:",
+                "requires_param": True,
+            },
+            "verify_wallet": {
+                "handler": cmd_verify_wallet,
+                "param_prompt": "Please enter the wallet address to verify:",
+                "requires_param": True,
+            },
+            "my_wallets": {
+                "handler": cmd_list_wallets,
+                "requires_param": False,
+            },
+            "remove_wallet": {
+                "handler": cmd_remove_wallet,
+                "param_prompt": "Please enter the wallet address to remove:",
+                "requires_param": True,
+            },
+            "my_balance": {
+                "handler": cmd_my_balance,
+                "requires_param": False,
+            },
         }
 
     def get_command_handler(self, command):
@@ -158,6 +199,8 @@ class SolanaTelegramBot:
         self.solana_service = SolanaService()
         self.openai_service = OpenAIService()
         self.command_processor = CommandProcessor()
+        self.rate_limiter = RateLimiter()
+        self.user_service = UserService()
         self.app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
         self._setup_handlers()
 
@@ -193,8 +236,38 @@ class SolanaTelegramBot:
 
         self.app.add_handler(conv_handler)
 
+        # Add a handler for wallet verification callback buttons
+        self.app.add_handler(
+            CallbackQueryHandler(handle_verification_callback, pattern="^verify_")
+        )
+
         # Set up command menu
         self.app.post_init = self.setup_commands
+
+    async def check_rate_limit(self, update: Update, command: str) -> bool:
+        """Check if user has exceeded rate limit
+
+        Args:
+            update: Telegram update object
+            command: Command being executed
+
+        Returns:
+            True if not rate limited (can proceed), False if rate limited
+        """
+        if not update.effective_user:
+            return True  # No user ID, can't rate limit
+
+        user_id = str(update.effective_user.id)
+
+        if self.rate_limiter.is_rate_limited(user_id, command):
+            cooldown = self.rate_limiter.get_cooldown_time(user_id, command)
+            if update.message:
+                await update.message.reply_text(
+                    f"⚠️ Rate limit exceeded. Please try again in {cooldown} seconds."
+                )
+            return False
+
+        return True
 
     async def param_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle commands that require parameters"""
@@ -203,6 +276,10 @@ class SolanaTelegramBot:
 
         command = update.message.text.split()[0][1:] if update.message.text else ""
         logger.info(f"Param handler called for command: {command}")
+
+        # Check rate limits
+        if not await self.check_rate_limit(update, command):
+            return SELECT_OPTION
 
         # Check if parameters are provided
         if (
@@ -244,6 +321,10 @@ class SolanaTelegramBot:
 
         logger.info(f"Processing parameter for command {command}: {param_text}")
 
+        # Check rate limits
+        if not await self.check_rate_limit(update, command):
+            return SELECT_OPTION
+
         # If user entered cancel, abort the operation
         if param_text.lower() in ["cancel"]:
             await update.message.reply_text("Operation cancelled.")
@@ -284,7 +365,7 @@ class SolanaTelegramBot:
         if update.message and update.effective_user:
             first_name = update.effective_user.first_name or "there"
             await update.message.reply_text(
-                f"👋 Hello {first_name}! Welcome to the Solana Blockchain Assistant. "
+                f"�� Hello {first_name}! Welcome to the Solana Blockchain Assistant. "
                 f"I can help you query various information on Solana, including wallet balances, token information, and blockchain status."
             )
             await update.message.reply_text(
@@ -308,11 +389,41 @@ class SolanaTelegramBot:
                 "• /slot\n"
                 "• /help - Show this help message"
             )
+
+            # Add wallet management information
+            await update.message.reply_text(
+                "🔐 You can now register and manage your wallets:\n\n"
+                "• /add_wallet [address] [label] - Register your wallet\n"
+                "• /verify_wallet [address] [method] [data] - Verify ownership of your wallet\n"
+                "• /my_wallets - List your registered wallets\n"
+                "• /remove_wallet [address] - Remove a wallet\n"
+                "• /my_balance - Check balance of your default wallet"
+            )
+
+            # Add information about the new verification methods
+            await update.message.reply_text(
+                "ℹ️ About wallet verification:\n"
+                "We now support three ways to verify your wallet ownership:\n\n"
+                "1️⃣ Cryptographic Signatures (Recommended):\n"
+                "   `/verify_wallet [address] signature [signature]`\n"
+                "   Sign a challenge message with your wallet (using Phantom, Solflare, etc.)\n\n"
+                "2️⃣ Micro Transfer:\n"
+                "   `/verify_wallet [address] transfer`\n"
+                "   Send a specific tiny amount of SOL to verify ownership\n\n"
+                "3️⃣ Private Key (Not Recommended):\n"
+                "   `/verify_wallet [address] private_key [private_key]`\n"
+                "   Verify using your private key (security risk!)\n\n"
+                "The signature method is most secure and doesn't require any transaction!"
+            )
         return SELECT_OPTION
 
     async def input_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle user natural language input: convert to command and execute"""
         if not update.message or not update.message.text:
+            return SELECT_OPTION
+
+        # Check rate limit for natural language input
+        if not await self.check_rate_limit(update, "natural_language"):
             return SELECT_OPTION
 
         user_input = update.message.text.strip()
@@ -327,6 +438,12 @@ class SolanaTelegramBot:
         tokens = command_line.split(maxsplit=1)
         command = tokens[0] if tokens else ""
         argument = tokens[1] if len(tokens) > 1 else ""
+
+        # Check rate limit for the actual command
+        if command != "cannot complete" and not await self.check_rate_limit(
+            update, command
+        ):
+            return SELECT_OPTION
 
         if command == "sol_balance" and argument:
             result = await self.solana_service.get_sol_balance(argument)
@@ -405,14 +522,14 @@ class SolanaTelegramBot:
             # Check if there's a limit specified after the address
             parts = argument.split()
             address = parts[0]
-            limit = 5
+            limit = DEFAULT_TRANSACTIONS_DISPLAY
             if len(parts) > 1:
                 try:
                     limit = int(parts[1])
                     if limit < 1:
                         limit = 1
-                    elif limit > 10:
-                        limit = 10
+                    elif limit > MAX_TRANSACTIONS_DISPLAY:
+                        limit = MAX_TRANSACTIONS_DISPLAY
                 except ValueError:
                     pass
 

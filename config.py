@@ -7,3 +7,28 @@ HUGGINGFACE_TOKEN = "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"
 HF_MODEL_ID = "meta-llama/Llama-3.2-3B-Instruct"
 SOLANA_RPC_URL = "https://api.mainnet-beta.solana.com"  # Solana mainnet RPC URL
 OPEN_AI_API_KEY = "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"
+
+# Rate limiting configuration
+RATE_LIMIT_ENABLED = True
+RATE_LIMIT_MAX_CALLS = 30  # Maximum number of commands per time window
+RATE_LIMIT_WINDOW_SECONDS = 60  # Time window in seconds
+RATE_LIMIT_SPECIAL_COMMANDS = {
+    "sol_balance": 15,  # Max 15 calls per minute
+    "token_info": 15,
+    "account_details": 15,
+    "transaction": 15,
+    "recent_tx": 10,  # More resource-intensive, so lower limit
+    "validators": 5,  # More resource-intensive
+}
+
+# User wallet management configuration
+USER_WALLET_STORAGE_FILE = "user_wallets.json"  # File to store user wallet data
+WALLET_VERIFICATION_EXPIRY_SECONDS = (
+    3600  # How long a verification request is valid (1 hour)
+)
+SOLANA_TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+
+# Constants for message formatting
+MAX_VALIDATORS_DISPLAY = 10  # Maximum number of validators to display
+MAX_TRANSACTIONS_DISPLAY = 10  # Maximum number of transactions to display
+DEFAULT_TRANSACTIONS_DISPLAY = 5  # Default number of transactions to display

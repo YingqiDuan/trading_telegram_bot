@@ -10,7 +10,7 @@ Usage:
 """
 
 import logging
-from bot.telegram_bot import SolanaTelegramBot
+from bot import SolanaTelegramBot
 
 # Configure logging
 logging.basicConfig(

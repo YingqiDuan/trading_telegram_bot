@@ -1,7 +1,7 @@
 # solana_service/transaction.py
 import logging
 from solders.signature import Signature
-from base import client
+from services.solana_service.base import client
 
 logger = logging.getLogger(__name__)
 

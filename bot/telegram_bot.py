@@ -1,4 +1,5 @@
 import logging
+import sys, os
 from telegram import Update, BotCommand
 from telegram.ext import (
     Application,
@@ -7,14 +8,9 @@ from telegram.ext import (
     ConversationHandler,
     ContextTypes,
     filters,
-    BaseHandler,
     CallbackQueryHandler,
+    BaseHandler,
 )
-import sys
-import os
-
-# Add the parent directory to the path to allow importing modules from there
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import (
     TELEGRAM_BOT_TOKEN,
     MAX_TRANSACTIONS_DISPLAY,
@@ -44,175 +40,117 @@ from bot.command_handlers import (
     cmd_my_balance,
     handle_verification_callback,
 )
-from typing import cast, List
+from typing import List, Sequence, Dict, Any, Optional, Union, cast
 
 logger = logging.getLogger(__name__)
-
-# Define conversation states
-SELECT_OPTION = 0
-WAITING_PARAM = 1
+SELECT_OPTION, WAITING_PARAM = 0, 1
 
 
 class CommandProcessor:
-    """Helper class to process and manage commands"""
-
     def __init__(self):
-        """Initialize command processor with command definitions"""
-        self.command_handlers = {
+        self.handlers = {
             "sol_balance": {
                 "handler": cmd_sol_balance,
-                "param_prompt": "Please enter wallet address:",
-                "requires_param": True,
+                "prompt": "Enter wallet address:",
+                "requires": True,
             },
             "token_info": {
                 "handler": cmd_token_info,
-                "param_prompt": "Please enter token address:",
-                "requires_param": True,
+                "prompt": "Enter token address:",
+                "requires": True,
             },
             "account_details": {
                 "handler": cmd_account_details,
-                "param_prompt": "Please enter account address:",
-                "requires_param": True,
+                "prompt": "Enter account address:",
+                "requires": True,
             },
             "transaction": {
                 "handler": cmd_transaction,
-                "param_prompt": "Please enter transaction signature:",
-                "requires_param": True,
+                "prompt": "Enter transaction signature:",
+                "requires": True,
             },
             "recent_tx": {
                 "handler": cmd_recent_transactions,
-                "param_prompt": "Please enter wallet address and optional limit:",
-                "requires_param": True,
+                "prompt": "Enter wallet address and limit:",
+                "requires": True,
             },
             "validators": {
                 "handler": cmd_validators,
-                "param_prompt": "Please enter number of validators to display (optional) or press Enter for default:",
-                "requires_param": False,
+                "prompt": "Enter number of validators (optional):",
+                "requires": False,
             },
             "token_accounts": {
                 "handler": cmd_token_accounts,
-                "param_prompt": "Please enter wallet address:",
-                "requires_param": True,
+                "prompt": "Enter wallet address:",
+                "requires": True,
             },
-            "latest_block": {"handler": cmd_latest_block, "requires_param": False},
-            "network_status": {"handler": cmd_network_status, "requires_param": False},
-            "slot": {"handler": cmd_slot, "requires_param": False},
-            "help": {"handler": cmd_help, "requires_param": False},
+            "latest_block": {"handler": cmd_latest_block, "requires": False},
+            "network_status": {"handler": cmd_network_status, "requires": False},
+            "slot": {"handler": cmd_slot, "requires": False},
+            "help": {"handler": cmd_help, "requires": False},
             "add_wallet": {
                 "handler": cmd_add_wallet,
-                "param_prompt": "Please enter your wallet address and optional label:",
-                "requires_param": True,
+                "prompt": "Enter wallet address and label:",
+                "requires": True,
             },
             "verify_wallet": {
                 "handler": cmd_verify_wallet,
-                "param_prompt": "Please enter the wallet address to verify:",
-                "requires_param": True,
+                "prompt": "Enter wallet address to verify:",
+                "requires": True,
             },
-            "my_wallets": {
-                "handler": cmd_list_wallets,
-                "requires_param": False,
-            },
+            "my_wallets": {"handler": cmd_list_wallets, "requires": False},
             "remove_wallet": {
                 "handler": cmd_remove_wallet,
-                "param_prompt": "Please enter the wallet address to remove:",
-                "requires_param": True,
+                "prompt": "Enter wallet address to remove:",
+                "requires": True,
             },
-            "my_balance": {
-                "handler": cmd_my_balance,
-                "requires_param": False,
-            },
+            "my_balance": {"handler": cmd_my_balance, "requires": False},
         }
 
-    def get_command_handler(self, command):
-        """Get handler for a specific command
+    def get(self, cmd: str):
+        return self.handlers.get(cmd)
 
-        Args:
-            command: Command name
+    def requires_param(self, cmd: str) -> bool:
+        info = self.get(cmd)
+        return info.get("requires", False) if info else False
 
-        Returns:
-            Dict with command handler and metadata or None if not found
-        """
-        return self.command_handlers.get(command)
+    def get_prompt(self, cmd: str) -> str:
+        info = self.get(cmd)
+        return info.get("prompt", "") if info else ""
 
-    def requires_parameter(self, command):
-        """Check if a command requires parameters
-
-        Args:
-            command: Command name
-
-        Returns:
-            Boolean indicating if command requires parameters
-        """
-        cmd_info = self.command_handlers.get(command)
-        if not cmd_info:
+    async def execute(
+        self, cmd: str, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> bool:
+        info = self.get(cmd)
+        if not info:
+            if update.message:
+                await update.message.reply_text(f"Unknown command: {cmd}")
             return False
-        return cmd_info.get("requires_param", False)
-
-    def get_parameter_prompt(self, command):
-        """Get the prompt text for a command's parameter
-
-        Args:
-            command: Command name
-
-        Returns:
-            Prompt text or None if not applicable
-        """
-        cmd_info = self.command_handlers.get(command)
-        if not cmd_info:
-            return None
-        return cmd_info.get("param_prompt")
-
-    async def execute_command(self, command, update, context):
-        """Execute a command with the given parameters
-
-        Args:
-            command: Command name
-            update: Telegram update object
-            context: Callback context
-
-        Returns:
-            bool: True if command was executed successfully, False otherwise
-        """
-        if not update.message:
-            logger.warning("Cannot execute command, message is None")
-            return False
-
-        cmd_info = self.get_command_handler(command)
-        if not cmd_info:
-            await update.message.reply_text(f"Unknown command: {command}")
-            return False
-
         try:
-            await cmd_info["handler"](update, context)
+            await info["handler"](update, context)
             return True
         except Exception as e:
-            logger.error(f"Error executing command {command}: {e}")
-            await update.message.reply_text(f"Error executing command: {e}")
+            logger.error(f"Error in {cmd}: {e}")
+            if update.message:
+                await update.message.reply_text(f"Error: {e}")
             return False
 
 
 class SolanaTelegramBot:
-    """Main Telegram bot class for Solana blockchain assistant"""
-
     def __init__(self):
-        """Initialize the Telegram bot"""
         self.solana_service = SolanaService()
         self.openai_service = OpenAIService()
-        self.command_processor = CommandProcessor()
         self.rate_limiter = RateLimiter()
         self.user_service = UserService()
+        self.processor = CommandProcessor()
         self.app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-        self._setup_handlers()
+        self.setup_handlers()
 
-    def _setup_handlers(self):
-        """Set up bot command handlers and conversation flow"""
-        # Set up conversation handler for both natural language and commands
-        entry_points: List[BaseHandler] = [CommandHandler("start", self.start_command)]
-
-        # Add all command handlers as entry points
-        for cmd_name in self.command_processor.command_handlers:
-            entry_points.append(CommandHandler(cmd_name, self.param_handler))
-
+    def setup_handlers(self):
+        entry_points: List[BaseHandler] = [CommandHandler("start", self.start)]
+        # 每个命令均通过 param_handler 入口处理
+        for cmd in self.processor.handlers:
+            entry_points.append(CommandHandler(cmd, self.param_handler))
         conv_handler = ConversationHandler(
             entry_points=entry_points,
             states={
@@ -226,410 +164,172 @@ class SolanaTelegramBot:
                 ],
             },
             fallbacks=[
-                CommandHandler("cancel", self.cancel_handler),
-                MessageHandler(filters.COMMAND, self.handle_command_in_conversation),
-                MessageHandler(filters.ALL, self.fallback_handler),
+                CommandHandler("cancel", self.cancel),
+                MessageHandler(filters.COMMAND, self.param_handler),
+                MessageHandler(filters.ALL, self.fallback),
             ],
-            name="main_conversation",
+            name="main_conv",
             persistent=False,
         )
-
         self.app.add_handler(conv_handler)
-
-        # Add a handler for wallet verification callback buttons
         self.app.add_handler(
             CallbackQueryHandler(handle_verification_callback, pattern="^verify_")
         )
-
-        # Set up command menu
         self.app.post_init = self.setup_commands
 
-    async def check_rate_limit(self, update: Update, command: str) -> bool:
-        """Check if user has exceeded rate limit
-
-        Args:
-            update: Telegram update object
-            command: Command being executed
-
-        Returns:
-            True if not rate limited (can proceed), False if rate limited
-        """
+    async def check_rate(self, update: Update, cmd: str) -> bool:
         if not update.effective_user:
-            return True  # No user ID, can't rate limit
-
-        user_id = str(update.effective_user.id)
-
-        if self.rate_limiter.is_rate_limited(user_id, command):
-            cooldown = self.rate_limiter.get_cooldown_time(user_id, command)
+            return True
+        uid = str(update.effective_user.id)
+        if self.rate_limiter.is_rate_limited(uid, cmd):
+            cooldown = self.rate_limiter.get_cooldown_time(uid, cmd)
             if update.message:
                 await update.message.reply_text(
-                    f"⚠️ Rate limit exceeded. Please try again in {cooldown} seconds."
+                    f"Rate limit exceeded. Try again in {cooldown} seconds."
                 )
             return False
-
         return True
 
     async def param_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle commands that require parameters"""
-        if not update.message:
-            return ConversationHandler.END
-
-        command = update.message.text.split()[0][1:] if update.message.text else ""
-        logger.info(f"Param handler called for command: {command}")
-
-        # Check rate limits
-        if not await self.check_rate_limit(update, command):
+        if not update.message or not update.message.text:
             return SELECT_OPTION
 
-        # Check if parameters are provided
-        if (
-            not context.args or len(context.args) < 1
-        ) and self.command_processor.requires_parameter(command):
-            # Store the command in user_data for later
+        cmd = update.message.text.split()[0][1:]
+        if not await self.check_rate(update, cmd):
+            return SELECT_OPTION
+
+        if self.processor.requires_param(cmd) and not context.args:
             if context.user_data is not None:
-                context.user_data["pending_command"] = command
-                logger.info(f"Storing pending command: {command}")
+                context.user_data["pending"] = cmd
+                prompt = self.processor.get_prompt(cmd)
+                if prompt:
+                    await update.message.reply_text(prompt)
+            return WAITING_PARAM
 
-            # Ask for the required parameter based on command
-            prompt = self.command_processor.get_parameter_prompt(command)
-            if prompt:
-                await update.message.reply_text(prompt)
-                return WAITING_PARAM
-
-        # If parameters are provided or not required, call the appropriate command handler
-        result = await self.command_processor.execute_command(command, update, context)
-        return SELECT_OPTION if result else ConversationHandler.END
+        await self.processor.execute(cmd, update, context)
+        return SELECT_OPTION
 
     async def continue_with_param(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ):
-        """Continue processing a command with parameters provided by the user"""
-        if not update.message:
-            logger.warning("No message in continue_with_param")
-            return SELECT_OPTION
-
-        if context.user_data is None or "pending_command" not in context.user_data:
-            logger.warning("No pending command found in user_data")
-            if update.message:
-                await update.message.reply_text(
-                    "Sorry, I couldn't process your request. Please try again with a command."
-                )
-            return SELECT_OPTION
-
-        command = context.user_data.get("pending_command", "")
-        param_text = update.message.text.strip() if update.message.text else ""
-
-        logger.info(f"Processing parameter for command {command}: {param_text}")
-
-        # Check rate limits
-        if not await self.check_rate_limit(update, command):
-            return SELECT_OPTION
-
-        # If user entered cancel, abort the operation
-        if param_text.lower() in ["cancel"]:
-            await update.message.reply_text("Operation cancelled.")
-            if context.user_data is not None:
-                context.user_data.pop("pending_command", None)
-            return SELECT_OPTION
-
-        # Set the args based on user input
-        context.args = param_text.split()
-
-        # Execute the command
-        result = await self.command_processor.execute_command(command, update, context)
-
-        # Clear the pending command
-        if context.user_data is not None:
-            context.user_data.pop("pending_command", None)
-
-        return SELECT_OPTION
-
-    async def handle_command_in_conversation(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ):
-        """Handle commands that come in during a conversation"""
         if not update.message or not update.message.text:
             return SELECT_OPTION
 
-        command = update.message.text.split()[0][1:]
-
-        if command == "cancel":
-            await self.cancel_handler(update, context)
+        if context.user_data is None or "pending" not in context.user_data:
+            await update.message.reply_text("No pending command.")
             return SELECT_OPTION
 
-        # For all other commands, pass to param_handler
-        return await self.param_handler(update, context)
+        cmd = context.user_data.pop("pending")
+        if update.message.text.lower() == "cancel":
+            await update.message.reply_text("Operation cancelled.")
+            return SELECT_OPTION
 
-    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /start command: introduce bot functionality"""
+        context.args = update.message.text.strip().split()
+        await self.processor.execute(cmd, update, context)
+        return SELECT_OPTION
+
+    async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if update.message and update.effective_user:
-            first_name = update.effective_user.first_name or "there"
+            name = update.effective_user.first_name or "there"
             await update.message.reply_text(
-                f"�� Hello {first_name}! Welcome to the Solana Blockchain Assistant. "
-                f"I can help you query various information on Solana, including wallet balances, token information, and blockchain status."
+                f"Hello {name}! Welcome to Solana Assistant."
             )
             await update.message.reply_text(
-                "You can interact with me in two ways:\n\n"
-                "1️⃣ Use natural language, for example:\n"
-                "• 'What's the balance of wallet address 5YNmYpZxFVNVx5Yjte7u11eTAdk6uPCKG9QiVViwLtKV?'\n"
-                "• 'Tell me about the latest Solana block'\n"
-                "• 'Show me information about token EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'\n"
-                "• 'What are the recent transactions for wallet 5YNmYpZxFVNVx5Yjte7u11eTAdk6uPCKG9QiVViwLtKV?'\n"
-                "• 'Show me transaction details for 5rUk2MP3NrAUo3x3kEaKvA3mFKiKgsGSqMkjbw9V33JhRBRBxUKpVmpjEhYKcyFkBX9JroQkGEqRAksVZxBuBkwP'\n\n"
-                "2️⃣ Use direct commands:\n"
-                "• /sol_balance [wallet address]\n"
-                "• /token_info [token address]\n"
-                "• /account_details [account address]\n"
-                "• /transaction [signature]\n"
-                "• /recent_tx [address] [limit]\n"
-                "• /token_accounts [address]\n"
-                "• /validators [limit]\n"
-                "• /latest_block\n"
-                "• /network_status\n"
-                "• /slot\n"
-                "• /help - Show this help message"
-            )
-
-            # Add wallet management information
-            await update.message.reply_text(
-                "🔐 You can now register and manage your wallets:\n\n"
-                "• /add_wallet [address] [label] - Register your wallet\n"
-                "• /verify_wallet [address] [method] [data] - Verify ownership of your wallet\n"
-                "• /my_wallets - List your registered wallets\n"
-                "• /remove_wallet [address] - Remove a wallet\n"
-                "• /my_balance - Check balance of your default wallet"
-            )
-
-            # Add information about the new verification methods
-            await update.message.reply_text(
-                "ℹ️ About wallet verification:\n"
-                "We now support three ways to verify your wallet ownership:\n\n"
-                "1️⃣ Cryptographic Signatures (Recommended):\n"
-                "   `/verify_wallet [address] signature [signature]`\n"
-                "   Sign a challenge message with your wallet (using Phantom, Solflare, etc.)\n\n"
-                "2️⃣ Micro Transfer:\n"
-                "   `/verify_wallet [address] transfer`\n"
-                "   Send a specific tiny amount of SOL to verify ownership\n\n"
-                "3️⃣ Private Key (Not Recommended):\n"
-                "   `/verify_wallet [address] private_key [private_key]`\n"
-                "   Verify using your private key (security risk!)\n\n"
-                "The signature method is most secure and doesn't require any transaction!"
+                "Commands: /sol_balance, /token_info, /account_details, /transaction, "
+                "/recent_tx, /validators, /token_accounts, /latest_block, /network_status, "
+                "/slot, /help, /add_wallet, /verify_wallet, /my_wallets, /remove_wallet, /my_balance"
             )
         return SELECT_OPTION
 
     async def input_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle user natural language input: convert to command and execute"""
         if not update.message or not update.message.text:
             return SELECT_OPTION
-
-        # Check rate limit for natural language input
-        if not await self.check_rate_limit(update, "natural_language"):
+        if not await self.check_rate(update, "natural_language"):
             return SELECT_OPTION
-
         user_input = update.message.text.strip()
         if not user_input:
-            await update.message.reply_text(
-                "I couldn't understand that request. Please provide a text message."
+            await update.message.reply_text("Please enter a valid message.")
+            return SELECT_OPTION
+        cmd_line = await self.openai_service.convert_to_command(user_input)
+        parts = cmd_line.split(maxsplit=1)
+        cmd = parts[0] if parts else ""
+        context.args = parts[1].split() if len(parts) > 1 else []
+        if cmd != "cannot complete" and not await self.check_rate(update, cmd):
+            return SELECT_OPTION
+        # 简化：仅处理部分命令示例
+        if cmd == "sol_balance" and context.args:
+            result = await self.solana_service.get_sol_balance(context.args[0])
+            text = (
+                f"SOL Balance for {result['address']}: {result['balance']} SOL"
+                if result
+                else f"Failed to get balance for {context.args[0]}"
             )
-            return SELECT_OPTION
-
-        # Call OpenAI to convert natural language to command
-        command_line = await self.openai_service.convert_to_command(user_input)
-        tokens = command_line.split(maxsplit=1)
-        command = tokens[0] if tokens else ""
-        argument = tokens[1] if len(tokens) > 1 else ""
-
-        # Check rate limit for the actual command
-        if command != "cannot complete" and not await self.check_rate_limit(
-            update, command
-        ):
-            return SELECT_OPTION
-
-        if command == "sol_balance" and argument:
-            result = await self.solana_service.get_sol_balance(argument)
-            if result:
-                text = f"SOL Balance for {result['address']}:\n{result['balance']} SOL"
-            else:
-                text = f"Unable to retrieve SOL balance for address {argument}."
-
-        elif command == "token_info" and argument:
-            result = await self.solana_service.get_token_info(argument)
-            if result:
-                text = (
-                    f"Token Information:\n"
-                    f"Address: {result['address']}\n"
-                    f"Supply: {result['supply']}\n"
+        elif cmd == "token_info" and context.args:
+            result = await self.solana_service.get_token_info(context.args[0])
+            text = (
+                (
+                    f"Token Info:\nAddress: {result['address']}\nSupply: {result['supply']}\n"
                     f"Decimals: {result['decimals']}"
                 )
-            else:
-                text = f"Unable to retrieve token information for {argument}."
-
-        elif command == "account_details" and argument:
-            result = await self.solana_service.get_account_details(argument)
-            if result:
-                text = (
-                    f"Account Details:\n"
-                    f"Address: {result['address']}\n"
-                    f"Lamports: {result['lamports']}\n"
-                    f"Owner: {result['owner']}\n"
-                    f"Executable: {result['executable']}\n"
-                    f"Rent Epoch: {result['rent_epoch']}"
-                )
-            else:
-                text = f"Unable to retrieve account details for {argument}."
-
-        elif command == "latest_block":
+                if result
+                else f"Failed to get token info for {context.args[0]}"
+            )
+        elif cmd == "latest_block":
             result = await self.solana_service.get_latest_block()
-            if result:
-                text = (
-                    f"Latest Block:\n"
-                    f"Blockhash: {result['blockhash']}\n"
+            text = (
+                (
+                    f"Latest Block:\nBlockhash: {result['blockhash']}\n"
                     f"Last Valid Block Height: {result['last_valid_block_height']}"
                 )
-            else:
-                text = "Unable to retrieve latest block information."
-
-        elif command == "network_status":
+                if result
+                else "Failed to get latest block."
+            )
+        elif cmd == "network_status":
             result = await self.solana_service.get_network_status()
-            if result:
-                text = (
-                    f"Solana Network Status:\n"
-                    f"Solana Core: {result['solana_core']}\n"
+            text = (
+                (
+                    f"Network Status:\nSolana Core: {result['solana_core']}\n"
                     f"Feature Set: {result['feature_set']}"
                 )
-            else:
-                text = "Unable to retrieve Solana network status."
-
-        elif command == "transaction" and argument:
-            result = await self.solana_service.get_transaction_details(argument)
-            if result:
-                status = (
-                    "✅ Successful" if result.get("success", False) else "❌ Failed"
-                )
-                text = (
-                    f"Transaction Details:\n"
-                    f"Signature: {result['signature']}\n"
-                    f"Status: {status}\n"
-                    f"Slot: {result.get('slot', 'Unknown')}\n"
-                    f"Block Time: {result.get('block_time', 'Unknown')}"
-                )
-            else:
-                text = (
-                    f"Unable to retrieve transaction details for signature {argument}."
-                )
-
-        elif command == "recent_tx" and argument:
-            # Check if there's a limit specified after the address
-            parts = argument.split()
-            address = parts[0]
-            limit = DEFAULT_TRANSACTIONS_DISPLAY
-            if len(parts) > 1:
-                try:
-                    limit = int(parts[1])
-                    if limit < 1:
-                        limit = 1
-                    elif limit > MAX_TRANSACTIONS_DISPLAY:
-                        limit = MAX_TRANSACTIONS_DISPLAY
-                except ValueError:
-                    pass
-
-            transactions = await self.solana_service.get_recent_transactions(
-                address, limit
+                if result
+                else "Failed to get network status."
             )
-            if transactions:
-                text = f"Recent Transactions for {address}:\n\n"
-                for i, tx in enumerate(transactions, 1):
-                    status = "✅" if tx.get("success", False) else "❌"
-                    text += (
-                        f"{i}. {status} {tx.get('signature', 'Unknown')[:12]}...\n"
-                        f"   Slot: {tx.get('slot', 'Unknown')}\n"
-                    )
-            else:
-                text = f"No recent transactions found for {address}."
-
-        elif command == "validators":
-            # Extract limit if provided in argument
-            limit = 5
-            if argument:
-                try:
-                    limit = int(argument)
-                    if limit < 1:
-                        limit = 1
-                    elif limit > 10:
-                        limit = 10
-                except ValueError:
-                    pass
-
-            validators = await self.solana_service.get_validators(limit)
-            if validators:
-                text = f"Top {len(validators)} Active Validators:\n\n"
-                for i, validator in enumerate(validators, 1):
-                    text += (
-                        f"{i}. Node: {validator.get('node_pubkey', 'Unknown')[:8]}...\n"
-                        f"   Vote Account: {validator.get('vote_pubkey', 'Unknown')[:8]}...\n"
-                        f"   Stake: {validator.get('activated_stake', 'Unknown')} SOL\n"
-                        f"   Commission: {validator.get('commission', 'Unknown')}%\n\n"
-                    )
-            else:
-                text = "Unable to retrieve validator information."
-
-        elif command == "token_accounts" and argument:
-            accounts = await self.solana_service.get_token_accounts(argument)
-            if accounts:
-                text = f"Token Accounts for {argument}:\n\n"
-                for i, account in enumerate(accounts, 1):
-                    text += (
-                        f"{i}. Account: {account.get('pubkey', 'Unknown')[:10]}...\n"
-                    )
-                    if "data" in account:
-                        text += f"   Data: {account['data']}\n"
-            else:
-                text = f"No token accounts found for {argument}."
-
-        elif command == "slot":
-            slot = await self.solana_service.get_slot()
-            if slot > 0:
-                text = f"Current Solana Slot: {slot}"
-            else:
-                text = "Unable to retrieve current slot information."
-
+        elif cmd == "transaction" and context.args:
+            result = await self.solana_service.get_transaction_details(context.args[0])
+            status = "✅ Successful" if result.get("success") else "❌ Failed"
+            text = (
+                (
+                    f"Transaction Details:\nSignature: {result.get('signature','Unknown')}\n"
+                    f"Status: {status}\nSlot: {result.get('slot','Unknown')}\n"
+                    f"Block Time: {result.get('block_time','Unknown')}"
+                )
+                if result
+                else f"Failed to get transaction details for {context.args[0]}"
+            )
         else:
             text = "Command not recognized or missing parameter."
-
         await update.message.reply_text(text)
         return SELECT_OPTION
 
-    async def cancel_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /cancel command"""
+    async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if update.message:
-            await update.message.reply_text("Operation cancelled.")
-
-            # Clear any pending command
-            if context.user_data is not None and "pending_command" in context.user_data:
-                context.user_data.pop("pending_command", None)
-
+            await update.message.reply_text("Cancelled.")
+            if context.user_data is not None:
+                context.user_data.pop("pending", None)
         return SELECT_OPTION
 
-    async def fallback_handler(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ):
-        """Handle unrecognized input"""
+    async def fallback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if update.message:
             await update.message.reply_text(
-                "Please use natural language for your request or use direct commands. For help, type /help"
+                "Please use valid commands or natural language. Type /help for assistance."
             )
         return SELECT_OPTION
 
-    async def setup_commands(self, application: Application):
-        """Set up Telegram command menu for better UX"""
-        commands = []
-        for command, description in get_command_list():
-            commands.append(BotCommand(command, description))
-
-        await application.bot.set_my_commands(commands)
-        logger.info("Telegram command menu set up successfully")
+    async def setup_commands(self, app: Application):
+        cmds = [BotCommand(cmd, desc) for cmd, desc in get_command_list()]
+        await app.bot.set_my_commands(cmds)
+        logger.info("Commands set up.")
 
     def run(self):
-        """Start the bot"""
         logger.info("Starting Solana Telegram Bot")
         self.app.run_polling()

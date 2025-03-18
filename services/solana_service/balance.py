@@ -1,7 +1,7 @@
 # solana_service/balance.py
 import logging
 from solders.pubkey import Pubkey
-from base import client
+from services.solana_service.base import client
 
 logger = logging.getLogger(__name__)
 

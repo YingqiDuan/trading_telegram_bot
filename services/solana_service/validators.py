@@ -1,6 +1,6 @@
 # solana_service/validators.py
 import logging
-from base import client
+from services.solana_service.base import client
 
 logger = logging.getLogger(__name__)
 

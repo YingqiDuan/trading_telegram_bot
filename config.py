@@ -32,3 +32,8 @@ SOLANA_TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 MAX_VALIDATORS_DISPLAY = 10  # Maximum number of validators to display
 MAX_TRANSACTIONS_DISPLAY = 10  # Maximum number of transactions to display
 DEFAULT_TRANSACTIONS_DISPLAY = 5  # Default number of transactions to display
+
+# modal
+VOLUME_DIR = "/data"
+DB_FILENAME = "solana_blocks.db"
+DB_PATH = f"{VOLUME_DIR}/{DB_FILENAME}"

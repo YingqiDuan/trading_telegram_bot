@@ -24,7 +24,7 @@ RATE_LIMIT_SPECIAL_COMMANDS = {
 # User wallet management configuration
 USER_WALLET_STORAGE_FILE = "user_wallets.json"  # File to store user wallet data
 WALLET_VERIFICATION_EXPIRY_SECONDS = (
-    3600  # How long a verification request is valid (1 hour)
+    15 * 60  # How long a verification request is valid (15 min)
 )
 SOLANA_TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 

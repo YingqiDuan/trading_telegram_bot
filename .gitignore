@@ -1,0 +1,6 @@
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+*.db-trace
+*.db-trace.json

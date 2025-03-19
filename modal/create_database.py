@@ -159,8 +159,7 @@ def create_database(db_path: str) -> None:
 
 
 if __name__ == "__main__":
-    # This allows running this script directly to create the database
-    db_path = "database/solana_blocks.db"
+    db_path = "modal/solana_data.db"
     print(f"Creating database at {db_path}")
     create_database(db_path)
     print("Database creation completed")

@@ -4,3 +4,4 @@
 *.db-journal
 *.db-trace
 *.db-trace.json
+.vscode

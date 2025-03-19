@@ -1,7 +1,6 @@
 import time
 
-# Database file path, modify as needed
-DB_PATH = "solana_data.db"
+DB_PATH = "modal/solana_data.db"
 
 from common_utils import (
     get_latest_slot,

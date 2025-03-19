@@ -4,7 +4,7 @@ A Telegram bot that uses natural language processing to interact with the Solana
 
 ## Features
 
-- **Natural Language Understanding**: Uses LLaMA 3.2 through Hugging Face to interpret user queries
+- **Natural Language Understanding**: Uses gpt-4o-mini to interpret user queries
 - **Solana Integration**: Interacts with the Solana blockchain via RPC API
 - **User Wallet Management**: Securely store and manage user wallet addresses
 - **Rate Limiting**: Built-in protection against API abuse
@@ -61,10 +61,8 @@ The bot can handle the following types of requests:
 3. **Configuration**:
    - Edit `config.py` with your own values:
      - `TELEGRAM_BOT_TOKEN`: Your Telegram bot token from BotFather
-     - `HUGGINGFACE_TOKEN`: Your Hugging Face API token for LLaMA 3.2
      - `OPEN_AI_API_KEY`: Your OpenAI API key (optional)
      - `SOLANA_RPC_URL`: Solana RPC endpoint (default is public mainnet)
-     - `DOMAIN_URL`: Your webhook domain URL (if using webhooks)
 
 4. **Run the Bot**:
    ```
@@ -104,7 +102,7 @@ The bot provides features to help users manage their Solana wallets:
 
 The bot works by:
 1. Receiving natural language input from the user
-2. Processing the input through an LLM (Llama-3.2-3B-Instruct)
+2. Processing the input through an LLM 
 3. Converting the natural language to a structured command
 4. Executing the corresponding Solana RPC call
 5. Returning the formatted result to the user
@@ -138,6 +136,4 @@ This project is proprietary and may not be distributed or used without authoriza
 
 - [Python Telegram Bot](https://github.com/python-telegram-bot/python-telegram-bot)
 - [Solana-py](https://github.com/michaelhly/solana-py)
-- [Hugging Face](https://huggingface.co/)
-- [LLaMA 3.2](https://ai.meta.com/llama/)
 - [Modal](https://modal.com/) 

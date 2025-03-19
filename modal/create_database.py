@@ -4,7 +4,7 @@ import sys
 import importlib.util
 from pathlib import Path
 
-# 导入共用函数
+# Import common functions
 from common_utils import configure_sqlite_connection
 
 

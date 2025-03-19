@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 class CommandProcessor:
     def __init__(self):
-        # 定义每个命令的处理函数、参数提示信息和是否需要参数
+        # Define the handler function, parameter prompt, and parameter requirement for each command
         self.handlers = {
             "sol_balance": {
                 "handler": cmd_sol_balance,

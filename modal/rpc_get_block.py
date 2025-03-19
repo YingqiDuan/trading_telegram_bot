@@ -5,13 +5,10 @@ import sqlite3
 from typing import Dict, Any, Optional, List, Tuple
 import base64
 
-# 导入所有共用函数
 from common_utils import (
     get_block,
     save_to_sqlite,
 )
-
-# 如果有其他特定于此模块的函数，可以在这里定义
 
 if __name__ == "__main__":
     # Specify a slot number to fetch

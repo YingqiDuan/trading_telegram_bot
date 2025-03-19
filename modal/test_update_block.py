@@ -1,6 +1,6 @@
 import time
 
-# 数据库文件路径，根据需要修改
+# Database file path, modify as needed
 DB_PATH = "modal/solana_data.db"
 
 from common_utils import (
@@ -13,36 +13,36 @@ from common_utils import (
 
 def main():
     while True:
-        # 每5秒获取一次最新区块号
+        # Get the latest block number every 5 seconds
         latest_slot = get_latest_slot()
         if latest_slot is None:
-            print("获取最新区块号失败，等待5秒后重试...")
+            print("Failed to get latest slot, retrying in 5 seconds...")
             time.sleep(5)
             continue
 
-        # 获取数据库中已处理的最高 slot
+        # Get the highest processed slot in the database
         highest_slot = get_highest_processed_slot(DB_PATH)
-        print(f"数据库中最高slot: {highest_slot}，最新slot: {latest_slot}")
+        print(f"Highest slot in database: {highest_slot}, Latest slot: {latest_slot}")
 
-        # 如果有新区块，逐个处理
+        # If there are new blocks, process them one by one
         if latest_slot > highest_slot:
             for slot in range(highest_slot + 1, latest_slot + 1):
-                print(f"开始处理slot {slot}")
+                print(f"Processing slot {slot}")
                 block_data = get_block(slot)
                 if block_data:
                     try:
                         save_to_sqlite(block_data, DB_PATH)
-                        print(f"slot {slot} 已成功保存到数据库")
+                        print(f"Slot {slot} has been successfully saved to database")
                     except Exception as e:
-                        print(f"保存slot {slot}时发生错误: {e}")
+                        print(f"Error saving slot {slot}: {e}")
                 else:
-                    print(f"无法获取slot {slot} 的区块数据")
-                # 每处理一个区块等待0.2秒
+                    print(f"Unable to get block data for slot {slot}")
+                # Wait 0.2 seconds after processing each block
                 time.sleep(0.2)
         else:
-            print("暂无新区块")
+            print("No new blocks")
 
-        # 每5秒执行一次最新slot检查
+        # Check for latest slot every 5 seconds
         time.sleep(5)
 
 

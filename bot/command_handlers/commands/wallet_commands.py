@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 user_service = UserService()
 solana_service = SolanaService()
 
-# 回调数据格式
+# Callback data format
 VERIFY_SIGNATURE_CB = "verify_signature_{}"
 VERIFY_TRANSFER_CB = "verify_transfer_{}"
 VERIFY_PRIVATE_KEY_CB = "verify_private_key_{}"

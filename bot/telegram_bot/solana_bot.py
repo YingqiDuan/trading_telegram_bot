@@ -18,7 +18,7 @@ from services.openai_service import OpenAIService
 from services.rate_limiter import RateLimiter
 from services.user_service import UserService
 
-# 导入之前组织好的命令处理函数和回调函数
+# Import previously organized command handlers and callback functions
 from bot.command_handlers.commands import (
     get_command_list,
 )
@@ -43,9 +43,9 @@ class SolanaTelegramBot:
         self.setup_handlers()
 
     def setup_handlers(self):
-        # 定义所有入口处理器
+        # Define all entry handlers
         entry_points: List[BaseHandler] = [CommandHandler("start", self.start)]
-        # 每个命令均通过 param_handler 入口处理
+        # Each command is processed through the param_handler entry
         for cmd in self.processor.handlers:
             entry_points.append(CommandHandler(cmd, self.param_handler))
         conv_handler = ConversationHandler(
@@ -147,14 +147,14 @@ class SolanaTelegramBot:
         if not user_input:
             await update.message.reply_text("Please enter a valid message.")
             return SELECT_OPTION
-        # 使用 OpenAIService 将自然语言转为命令行（接口与原来保持一致）
+        # Using OpenAIService to convert natural language to command line (keep interface consistent with original)
         cmd_line = await self.openai_service.convert_to_command(user_input)
         parts = cmd_line.split(maxsplit=1)
         cmd = parts[0] if parts else ""
         context.args = parts[1].split() if len(parts) > 1 else []
         if cmd != "cannot complete" and not await self.check_rate(update, cmd):
             return SELECT_OPTION
-        # 简单示例：处理部分命令
+        # Simple example: process some commands
         if cmd == "sol_balance" and context.args:
             result = await self.solana_service.get_sol_balance(context.args[0])
             text = (

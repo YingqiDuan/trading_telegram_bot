@@ -121,9 +121,9 @@ def get_block(slot: int, timeout: int = 30) -> Optional[Dict[str, Any]]:
             print(f"Block data is not a dictionary for slot {slot}")
             return None
 
-        # 添加slot字段，因为RPC返回的数据中不包含此字段
+        # Add slot field, as it's not included in the RPC response data
         block_data["slot"] = slot
-        print(f"添加slot字段到区块数据: {slot}")
+        print(f"Adding slot field to block data: {slot}")
 
         # Remove rewards if present (save space)
         if "rewards" in block_data:
@@ -187,18 +187,18 @@ def get_block(slot: int, timeout: int = 30) -> Optional[Dict[str, Any]]:
 
 def get_latest_slot(timeout: int = 30) -> Optional[int]:
     """
-    获取Solana主网上的最新区块号
+    Get the latest block number from Solana mainnet
 
     Args:
-        timeout: RPC请求超时时间（秒）
+        timeout: RPC request timeout (seconds)
 
     Returns:
-        最新的区块号，如果请求失败则返回None
+        The latest block number, or None if the request fails
     """
-    # Solana主网RPC端点
+    # Solana mainnet RPC endpoint
     rpc_url = "https://api.mainnet-beta.solana.com"
 
-    # 准备getSlot RPC请求
+    # Prepare getSlot RPC request
     headers = {"Content-Type": "application/json"}
     payload = {
         "jsonrpc": "2.0",
@@ -207,7 +207,7 @@ def get_latest_slot(timeout: int = 30) -> Optional[int]:
         "params": [],
     }
 
-    # 发送RPC请求
+    # Send RPC request
     try:
         response = requests.post(
             rpc_url, headers=headers, json=payload, timeout=timeout
@@ -216,16 +216,16 @@ def get_latest_slot(timeout: int = 30) -> Optional[int]:
         result = response.json()
 
         if "error" in result:
-            print(f"获取最新区块号错误: {result['error']['message']}")
+            print(f"Error getting latest block number: {result['error']['message']}")
             return None
 
         return result["result"]
 
     except requests.exceptions.RequestException as e:
-        print(f"请求错误: {e}")
+        print(f"Request error: {e}")
         return None
     except (KeyError, json.JSONDecodeError) as e:
-        print(f"处理响应错误: {e}")
+        print(f"Error processing response: {e}")
         return None
 
 
@@ -316,9 +316,9 @@ def insert_block_data(cursor: sqlite3.Cursor, data: Dict[str, Any]) -> int:
     Returns:
         The block_id of the inserted record
     """
-    # 获取slot值
-    slot = data["slot"]  # 现在我们确信这个字段存在
-    print(f"插入区块数据，slot={slot}, 类型={type(slot)}")
+    # Get slot value
+    slot = data["slot"]  # Now we're certain this field exists
+    print(f"Inserting block data, slot={slot}, type={type(slot)}")
 
     block_values = (
         slot,
@@ -329,16 +329,18 @@ def insert_block_data(cursor: sqlite3.Cursor, data: Dict[str, Any]) -> int:
         data.get("previousBlockhash", ""),
     )
 
-    # 检查区块是否已存在
+    # Check if the block already exists
     cursor.execute("SELECT id FROM blocks WHERE slot = ?", (slot,))
     existing_block = cursor.fetchone()
 
     block_id = None
     if existing_block:
         block_id = existing_block[0]
-        print(f"区块 {slot} 已存在，ID={block_id}，将更新现有记录")
+        print(
+            f"Block {slot} already exists, ID={block_id}, will update existing record"
+        )
 
-        # 更新现有记录
+        # Update existing record
         update_values = (
             data.get("blockHeight", None),
             data.get("blockTime", None),
@@ -347,13 +349,13 @@ def insert_block_data(cursor: sqlite3.Cursor, data: Dict[str, Any]) -> int:
             data.get("previousBlockhash", ""),
             slot,
         )
-        print(f"执行SQL更新，values={update_values}")
+        print(f"Executing SQL update, values={update_values}")
         cursor.execute(SQL_UPDATE_BLOCK, update_values)
     else:
-        print(f"区块 {slot} 不存在，将插入新记录")
-        print(f"执行SQL插入，values={block_values}")
+        print(f"Block {slot} does not exist, will insert new record")
+        print(f"Executing SQL insert, values={block_values}")
 
-        # 使用直接插入而不是INSERT OR IGNORE，以确保获得正确的rowid
+        # Use direct insert instead of INSERT OR IGNORE to ensure correct rowid
         cursor.execute(
             """
             INSERT INTO blocks 
@@ -363,35 +365,35 @@ def insert_block_data(cursor: sqlite3.Cursor, data: Dict[str, Any]) -> int:
             block_values,
         )
 
-        # 获取最后插入的行ID
+        # Get last inserted row ID
         block_id = cursor.lastrowid
-        print(f"最后插入的行ID (cursor.lastrowid): {block_id}")
+        print(f"Last inserted row ID (cursor.lastrowid): {block_id}")
 
-        # 验证插入是否成功
+        # Verify insertion success
         if block_id is None or block_id == 0:
             cursor.execute("SELECT id FROM blocks WHERE slot = ?", (slot,))
             result = cursor.fetchone()
             if result:
                 block_id = result[0]
-                print(f"通过查询获取区块 {slot} 的ID={block_id}")
+                print(f"Retrieved block ID for slot {slot} via query: {block_id}")
             else:
-                # 如果没有找到记录，可能是因为另一个事务已经插入了相同的记录
-                # 再次尝试获取ID
+                # If no record found, it's possible because another transaction inserted the same record
+                # Try again to get ID
                 cursor.execute("SELECT id FROM blocks WHERE slot = ?", (slot,))
                 result = cursor.fetchone()
                 if result:
                     block_id = result[0]
-                    print(f"在第二次尝试中找到区块 {slot}，ID={block_id}")
+                    print(f"Found block ID {slot} in second attempt: {block_id}")
                 else:
-                    raise ValueError(f"无法插入或找到区块 {slot}")
+                    raise ValueError(f"Failed to insert or find block {slot}")
 
-    # 检查是否有行被修改
+    # Verify if any rows were modified
     if cursor.rowcount > 0:
-        print(f"区块 {slot} 操作成功，影响行数={cursor.rowcount}")
+        print(f"Block {slot} operation successful, affected rows={cursor.rowcount}")
     else:
-        print(f"区块 {slot} 没有变化，影响行数={cursor.rowcount}")
+        print(f"Block {slot} unchanged, affected rows={cursor.rowcount}")
 
-    # 最后验证一次，确保我们有正确的block_id
+    # Verify one last time to ensure we have the correct block_id
     if block_id is None:
         cursor.execute("SELECT id FROM blocks WHERE slot = ?", (slot,))
         result = cursor.fetchone()
@@ -399,22 +401,22 @@ def insert_block_data(cursor: sqlite3.Cursor, data: Dict[str, Any]) -> int:
             raise ValueError(f"Failed to retrieve block ID for slot {slot}")
         block_id = result[0]
 
-    print(f"最终确认: 区块 {slot} 的ID={block_id}")
+    print(f"Final confirmation: Block {slot} ID={block_id}")
 
-    # 添加额外的验证，确保ID是唯一的
+    # Additional verification to ensure ID is unique
     cursor.execute("SELECT slot FROM blocks WHERE id = ?", (block_id,))
     result = cursor.fetchone()
     if result and result[0] != slot:
         raise ValueError(
-            f"严重错误: 区块ID {block_id} 已经被分配给了另一个区块 {result[0]}"
+            f"Critical error: Block ID {block_id} already assigned to another block {result[0]}"
         )
 
-    # 再次验证，确保slot对应的ID是正确的
+    # Verify again to ensure slot-to-ID mapping is correct
     cursor.execute("SELECT id FROM blocks WHERE slot = ?", (slot,))
     result = cursor.fetchone()
     if result and result[0] != block_id:
         raise ValueError(
-            f"严重错误: 区块 {slot} 的ID不一致，期望 {block_id}，实际 {result[0]}"
+            f"Critical error: Block {slot} ID mismatch, expected {block_id}, actual {result[0]}"
         )
 
     return block_id
@@ -478,13 +480,13 @@ def process_accounts(cursor: sqlite3.Cursor, pubkeys: set) -> dict:
     if not pubkeys:
         return {}
 
-    # 逐个插入账户，而不是批量插入
+    # Insert accounts one by one instead of batch insert
     pubkey_to_id = {}
     for pubkey in pubkeys:
-        # 插入账户
+        # Insert account
         cursor.execute(SQL_INSERT_ACCOUNT, (pubkey,))
 
-        # 获取账户ID
+        # Get account ID
         cursor.execute("SELECT id FROM accounts WHERE pubkey = ?", (pubkey,))
         result = cursor.fetchone()
         if result:
@@ -514,7 +516,7 @@ def process_transactions(
 
     tx_id_map = {}
 
-    # 逐个处理交易
+    # Process transactions one by one
     for tx in data["transactions"]:
         meta = tx.get("meta", {})
         transaction = tx.get("transaction", {})
@@ -530,7 +532,7 @@ def process_transactions(
         if not signature:
             continue
 
-        # 插入交易数据
+        # Insert transaction data
         tx_data = (
             block_id,
             signature,
@@ -540,7 +542,7 @@ def process_transactions(
         )
         cursor.execute(SQL_INSERT_TRANSACTION, tx_data)
 
-        # 获取交易ID
+        # Get transaction ID
         cursor.execute(SQL_SELECT_TRANSACTION_ID, (signature,))
         result = cursor.fetchone()
         if not result:
@@ -550,21 +552,21 @@ def process_transactions(
         tx_key = (block_id, signature)
         tx_id_map[tx_key] = tx_id
 
-        # 处理交易中的账户
+        # Process transaction accounts
         account_keys = message.get("accountKeys", [])
         header = message.get("header", {})
         num_required_signatures = header.get("numRequiredSignatures", 0)
         num_readonly_signed = header.get("numReadonlySignedAccounts", 0)
         num_readonly_unsigned = header.get("numReadonlyUnsignedAccounts", 0)
 
-        # 逐个处理交易中的账户
+        # Process transaction accounts one by one
         for idx, pubkey in enumerate(account_keys):
             is_signer = idx < num_required_signatures
             is_writable = (is_signer and idx >= num_readonly_signed) or (
                 not is_signer and idx < len(account_keys) - num_readonly_unsigned
             )
 
-            # 插入交易账户关系
+            # Insert transaction account relationship
             if pubkey in pubkey_to_id:
                 cursor.execute(
                     SQL_INSERT_TX_ACCOUNT,
@@ -601,7 +603,7 @@ def process_instructions(
     if "transactions" not in data or not data["transactions"]:
         return
 
-    # 逐个处理交易中的指令
+    # Process transactions one by one
     for tx in data["transactions"]:
         transaction = tx.get("transaction", {})
         message = transaction.get("message", {})
@@ -615,7 +617,7 @@ def process_instructions(
         tx_id = tx_id_map[tx_key]
         account_keys = message.get("accountKeys", [])
 
-        # 逐个处理指令
+        # Process instructions one by one
         for idx, instr in enumerate(message.get("instructions", [])):
             program_idx = instr.get("programIdIndex")
             if program_idx is None or program_idx >= len(account_keys):
@@ -627,10 +629,10 @@ def process_instructions(
 
             program_id = pubkey_to_id[program_pubkey]
 
-            # 转换指令数据为二进制格式以节省空间
+            # Convert instruction data to binary format to save space
             instr_data = encode_instruction_data(instr.get("data", ""))
 
-            # 插入指令数据
+            # Insert instruction data
             cursor.execute(
                 SQL_INSERT_INSTRUCTION,
                 (
@@ -641,7 +643,7 @@ def process_instructions(
                 ),
             )
 
-            # 获取指令ID
+            # Get instruction ID
             cursor.execute(SQL_SELECT_INSTRUCTION_ID, (tx_id, program_idx))
             result = cursor.fetchone()
             if not result:
@@ -649,7 +651,7 @@ def process_instructions(
 
             instr_id = result[0]
 
-            # 逐个处理指令中的账户
+            # Process instruction accounts one by one
             for acct_idx, acct_pos in enumerate(instr.get("accounts", [])):
                 if acct_pos >= len(account_keys):
                     continue
@@ -660,7 +662,7 @@ def process_instructions(
 
                 account_id = pubkey_to_id[account_pubkey]
 
-                # 插入指令账户关系
+                # Insert instruction account relationship
                 cursor.execute(
                     SQL_INSERT_INSTRUCTION_ACCOUNT,
                     (
@@ -679,9 +681,9 @@ def save_to_sqlite(data: Dict[str, Any], db_path: str) -> None:
         data: The block data to save
         db_path: Path to the SQLite database file
     """
-    # 获取slot值用于日志记录
+    # Get slot value for logging
     slot = data.get("slot")
-    print(f"开始保存区块 {slot} 到数据库 {db_path}")
+    print(f"Starting to save block {slot} to database {db_path}")
 
     # Ensure database exists
     ensure_database_exists(db_path)
@@ -689,7 +691,7 @@ def save_to_sqlite(data: Dict[str, Any], db_path: str) -> None:
     try:
         # Connect to SQLite database using context manager
         with sqlite3.connect(db_path) as conn:
-            # 设置更严格的事务隔离级别
+            # Set stricter transaction isolation level
             conn.execute("PRAGMA isolation_level = IMMEDIATE")
 
             # Configure SQLite connection
@@ -700,72 +702,78 @@ def save_to_sqlite(data: Dict[str, Any], db_path: str) -> None:
 
             try:
                 # Step 1: Insert block data
-                print(f"步骤1: 插入区块 {slot} 的基本数据")
+                print(f"Step 1: Inserting block {slot} basic data")
                 block_id = insert_block_data(cursor, data)
-                print(f"区块 {slot} 的ID为 {block_id}")
+                print(f"Block {slot} ID is {block_id}")
 
                 # Step 2: Collect all pubkeys
-                print(f"步骤2: 收集区块 {slot} 中的所有公钥")
+                print(f"Step 2: Collecting all pubkeys in block {slot}")
                 all_pubkeys = collect_account_pubkeys(data)
-                print(f"区块 {slot} 中找到 {len(all_pubkeys)} 个唯一公钥")
+                print(f"Found {len(all_pubkeys)} unique pubkeys in block {slot}")
 
                 # Step 3: Process accounts and get pubkey mapping
-                print(f"步骤3: 处理区块 {slot} 的账户数据")
+                print(f"Step 3: Processing block {slot} account data")
                 pubkey_to_id = process_accounts(cursor, all_pubkeys)
-                print(f"成功处理 {len(pubkey_to_id)} 个账户")
+                print(f"Successfully processed {len(pubkey_to_id)} accounts")
 
-                # 验证账户映射
+                # Verify account mapping
                 if len(all_pubkeys) > 0 and len(pubkey_to_id) == 0:
                     raise ValueError(
-                        f"严重错误: 区块 {slot} 的账户处理失败，没有获取到任何账户ID"
+                        f"Critical error: Block {slot} account processing failed, no account IDs retrieved"
                     )
 
                 # Step 4: Process transactions and related accounts
-                print(f"步骤4: 处理区块 {slot} 的交易数据")
+                print(f"Step 4: Processing block {slot} transaction data")
                 tx_id_map = process_transactions(cursor, data, block_id, pubkey_to_id)
                 tx_count = len(data.get("transactions", []))
                 print(
-                    f"区块 {slot} 中有 {tx_count} 个交易，成功处理 {len(tx_id_map)} 个"
+                    f"Block {slot} has {tx_count} transactions, successfully processed {len(tx_id_map)}"
                 )
 
-                # 验证交易处理
+                # Verify transaction processing
                 if tx_count > 0 and len(tx_id_map) == 0:
-                    print(f"警告: 区块 {slot} 的交易处理可能不完整")
+                    print(
+                        f"Warning: Block {slot} transaction processing may be incomplete"
+                    )
 
                 # Step 5: Process instructions and related accounts
-                print(f"步骤5: 处理区块 {slot} 的指令数据")
+                print(f"Step 5: Processing block {slot} instruction data")
                 process_instructions(cursor, data, block_id, tx_id_map, pubkey_to_id)
-                print(f"区块 {slot} 的指令处理完成")
+                print(f"Block {slot} instruction processing completed")
 
-                # 最终验证
+                # Final verification
                 cursor.execute(
                     "SELECT COUNT(*) FROM transactions WHERE block_id = ?", (block_id,)
                 )
                 tx_db_count = cursor.fetchone()[0]
-                print(f"数据库中区块 {slot} (ID={block_id}) 的交易数: {tx_db_count}")
+                print(
+                    f"Transaction count in database for block {slot} (ID={block_id}): {tx_db_count}"
+                )
 
-                # 验证区块ID是否正确
+                # Verify block ID consistency
                 cursor.execute("SELECT id FROM blocks WHERE slot = ?", (slot,))
                 result = cursor.fetchone()
                 if not result or result[0] != block_id:
                     raise ValueError(
-                        f"严重错误: 区块 {slot} 的ID不一致，期望 {block_id}，实际 {result[0] if result else 'None'}"
+                        f"Critical error: Block {slot} ID mismatch, expected {block_id}, actual {result[0] if result else 'None'}"
                     )
 
                 # Transaction is automatically committed when the context manager exits
-                print(f"区块 {slot} 的数据已成功保存到数据库")
+                print(f"Block {slot} data successfully saved to database")
 
             except Exception as e:
-                print(f"处理区块 {slot} 时发生错误: {e}")
-                # 在这里不抛出异常，让外层的异常处理来处理
+                print(f"Error processing block {slot}: {e}")
+                # Here we don't raise an exception, let outer exception handling deal with it
                 raise
 
     except sqlite3.Error as e:
-        print(f"数据库错误: {e}")
-        # 提供更详细的错误信息
+        print(f"Database error: {e}")
+        # Provide more detailed error information
         if "FOREIGN KEY constraint failed" in str(e):
-            print(f"外键约束错误: 可能是区块ID {block_id} 的引用问题")
-            # 尝试查询区块ID
+            print(
+                f"Foreign key constraint error: Possible block ID {block_id} reference issue"
+            )
+            # Try querying block ID
             try:
                 with sqlite3.connect(db_path) as conn:
                     conn.execute("PRAGMA foreign_keys = OFF")
@@ -773,30 +781,30 @@ def save_to_sqlite(data: Dict[str, Any], db_path: str) -> None:
                     cursor.execute("SELECT id FROM blocks WHERE slot = ?", (slot,))
                     result = cursor.fetchone()
                     if result:
-                        print(f"数据库中区块 {slot} 的ID为 {result[0]}")
+                        print(f"Block {slot} ID in database: {result[0]}")
                     else:
-                        print(f"数据库中找不到区块 {slot}")
+                        print(f"Block {slot} not found in database")
             except Exception as ex:
-                print(f"尝试查询区块ID时出错: {ex}")
+                print(f"Error querying block ID: {ex}")
         elif "UNIQUE constraint failed" in str(e):
-            print(f"唯一约束错误: 可能是尝试插入重复数据")
+            print(f"Unique constraint error: Possible duplicate data insertion attempt")
         # Connection and transaction are automatically rolled back when
         # the context manager exits due to an exception
-        raise  # 重新抛出异常，让调用者知道发生了错误
+        raise  # Re-raise exception for caller to know about the error
 
 
 def get_highest_processed_slot(db_path: str) -> int:
     """
-    从数据库中获取已处理的最高区块号
+    Get the highest block number processed from the database
 
     Args:
-        db_path: 数据库文件路径
+        db_path: Database file path
 
     Returns:
-        数据库中最高的区块号，如果数据库为空则返回0
+        The highest block number in the database, or 0 if the database is empty
     """
     if not os.path.exists(db_path):
-        print("数据库不存在，返回起始区块号0")
+        print("Database does not exist, returning starting block number 0")
         return 0
 
     try:
@@ -812,20 +820,20 @@ def get_highest_processed_slot(db_path: str) -> int:
                 return 0
 
     except sqlite3.Error as e:
-        print(f"数据库错误: {str(e)}")
+        print(f"Database error: {str(e)}")
         return 0
 
 
 def query_database(db_path: str, sql_query: str) -> Dict[str, Any]:
     """
-    执行SQL查询并返回结果
+    Execute SQL query and return results
 
     Args:
-        db_path: 数据库文件路径
-        sql_query: SQL查询语句
+        db_path: Database file path
+        sql_query: SQL query statement
 
     Returns:
-        包含查询结果的字典
+        Dictionary containing query results
     """
     if not os.path.exists(db_path):
         return {"error": "Database does not exist"}

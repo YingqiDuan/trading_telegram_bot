@@ -32,7 +32,7 @@ class RateLimiter:
         self.history.setdefault(user_id, {}).setdefault(command, [])
         cutoff = now - self.window
 
-        # 清理过期请求
+        # Clean up expired requests
         self.history[user_id][command] = [
             t for t in self.history[user_id][command] if t > cutoff
         ]
@@ -43,7 +43,7 @@ class RateLimiter:
             )
             return True
 
-        # 检查所有命令的总请求数
+        # Check total requests across all commands
         all_requests = [
             t for cmds in self.history[user_id].values() for t in cmds if t > cutoff
         ]

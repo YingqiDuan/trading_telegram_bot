@@ -60,14 +60,14 @@ def process_block(slot: int, timeout: int = 60) -> bool:
     Returns:
         True if block was successfully processed, False otherwise
     """
-    # 添加更多调试信息
+    # Add more debug information
     container_id = os.environ.get("MODAL_CONTAINER_ID", "unknown")
     start_time = time.time()
     print(
-        f"[Container {container_id}] 开始处理区块 {slot}，时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}..."
+        f"[Container {container_id}] Starting to process block {slot}, time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}..."
     )
 
-    # 最大重试次数
+    # Maximum retry count
     max_retries = 3
     retry_count = 0
 
@@ -75,54 +75,58 @@ def process_block(slot: int, timeout: int = 60) -> bool:
         try:
             # Call get_block without fields_to_remove parameter
             rpc_start_time = time.time()
-            print(f"[Container {container_id}] 开始 RPC 请求区块 {slot}...")
+            print(
+                f"[Container {container_id}] Starting RPC request for block {slot}..."
+            )
             block_data = get_block(slot, timeout)
             rpc_end_time = time.time()
             rpc_time = rpc_end_time - rpc_start_time
             print(
-                f"[Container {container_id}] RPC 请求区块 {slot} 完成，耗时 {rpc_time:.2f} 秒"
+                f"[Container {container_id}] RPC request for block {slot} completed, time: {rpc_time:.2f} seconds"
             )
 
             if not block_data:
-                print(f"[Container {container_id}] 区块 {slot} 未找到数据")
+                print(f"[Container {container_id}] No data found for block {slot}")
                 return False
 
-            # 验证区块数据的完整性
+            # Verify the integrity of block data
             if "blockhash" not in block_data:
                 print(
-                    f"[Container {container_id}] 区块 {slot} 数据不完整，缺少 blockhash"
+                    f"[Container {container_id}] Block {slot} data is incomplete, missing blockhash"
                 )
                 return False
 
             # Save to SQLite database in the volume
             db_start_time = time.time()
-            print(f"[Container {container_id}] 开始保存区块 {slot} 到数据库...")
+            print(
+                f"[Container {container_id}] Starting to save block {slot} to database..."
+            )
             try:
                 save_to_sqlite(block_data, str(DB_PATH))
                 db_end_time = time.time()
                 db_time = db_end_time - db_start_time
                 print(
-                    f"[Container {container_id}] 保存区块 {slot} 到数据库完成，耗时 {db_time:.2f} 秒"
+                    f"[Container {container_id}] Saving block {slot} to database completed, time: {db_time:.2f} seconds"
                 )
             except sqlite3.Error as e:
-                print(f"[Container {container_id}] 数据库错误: {e}")
-                # 如果是外键约束错误，可能是由于并发问题导致的
+                print(f"[Container {container_id}] Database error: {e}")
+                # If it's a foreign key constraint error, it might be due to concurrency issues
                 if (
                     "FOREIGN KEY constraint failed" in str(e)
                     and retry_count < max_retries - 1
                 ):
                     retry_count += 1
                     print(
-                        f"[Container {container_id}] 尝试重试 ({retry_count}/{max_retries})..."
+                        f"[Container {container_id}] Trying to retry ({retry_count}/{max_retries})..."
                     )
-                    time.sleep(1)  # 短暂延迟后重试
+                    time.sleep(1)  # Wait for a short time before retrying
                     continue
                 return False
             except Exception as e:
-                print(f"[Container {container_id}] 保存区块 {slot} 时发生错误: {e}")
+                print(f"[Container {container_id}] Error saving block {slot}: {e}")
                 return False
 
-            # 验证数据是否成功保存
+            # Verify data was successfully saved
             try:
                 with sqlite3.connect(str(DB_PATH)) as conn:
                     configure_sqlite_connection(conn, enable_transaction=False)
@@ -131,48 +135,50 @@ def process_block(slot: int, timeout: int = 60) -> bool:
                     result = cursor.fetchone()
                     if not result:
                         print(
-                            f"[Container {container_id}] 验证失败: 区块 {slot} 未成功保存到数据库"
+                            f"[Container {container_id}] Verification failed: block {slot} not saved to database"
                         )
                         if retry_count < max_retries - 1:
                             retry_count += 1
                             print(
-                                f"[Container {container_id}] 尝试重试 ({retry_count}/{max_retries})..."
+                                f"[Container {container_id}] Trying to retry ({retry_count}/{max_retries})..."
                             )
-                            time.sleep(1)  # 短暂延迟后重试
+                            time.sleep(1)  # Wait for a short time before retrying
                             continue
                         return False
 
                     block_id = result[0]
                     print(
-                        f"[Container {container_id}] 验证成功: 区块 {slot} 已保存，ID={block_id}"
+                        f"[Container {container_id}] Verification successful: block {slot} saved, ID={block_id}"
                     )
 
-                    # 验证交易数据
+                    # Verify transaction data
                     cursor.execute(
                         "SELECT COUNT(*) FROM transactions WHERE block_id = ?",
                         (block_id,),
                     )
                     tx_count = cursor.fetchone()[0]
                     print(
-                        f"[Container {container_id}] 区块 {slot} 的交易数: {tx_count}"
+                        f"[Container {container_id}] Block {slot} transaction count: {tx_count}"
                     )
             except Exception as e:
-                print(f"[Container {container_id}] 验证区块 {slot} 时发生错误: {e}")
-                # 这里不返回失败，因为数据可能已经成功保存
+                print(
+                    f"[Container {container_id}] Verification error for block {slot}: {e}"
+                )
+                # Here we don't return False because data might have been successfully saved
 
             # Make sure to commit changes to the volume
             commit_start_time = time.time()
-            print(f"[Container {container_id}] 开始提交区块 {slot} 的更改到卷...")
+            print(f"[Container {container_id}] Starting to commit changes to volume...")
             volume.commit()
             commit_end_time = time.time()
             commit_time = commit_end_time - commit_start_time
             print(
-                f"[Container {container_id}] 提交区块 {slot} 的更改到卷完成，耗时 {commit_time:.2f} 秒"
+                f"[Container {container_id}] Commit changes to volume completed, time: {commit_time:.2f} seconds"
             )
             end_time = time.time()
             processing_time = end_time - start_time
             print(
-                f"[Container {container_id}] 成功处理区块 {slot}，总耗时 {processing_time:.2f} 秒"
+                f"[Container {container_id}] Successfully processed block {slot}, total time: {processing_time:.2f} seconds"
             )
             return True
 
@@ -180,36 +186,36 @@ def process_block(slot: int, timeout: int = 60) -> bool:
             end_time = time.time()
             processing_time = end_time - start_time
             print(
-                f"[Container {container_id}] 处理区块 {slot} 出错: {str(e)}，耗时 {processing_time:.2f} 秒"
+                f"[Container {container_id}] Error processing block {slot}: {str(e)}, time: {processing_time:.2f} seconds"
             )
 
-            # 判断是否需要重试
+            # Check if we need to retry
             if retry_count < max_retries - 1:
                 retry_count += 1
                 print(
-                    f"[Container {container_id}] 尝试重试 ({retry_count}/{max_retries})..."
+                    f"[Container {container_id}] Trying to retry ({retry_count}/{max_retries})..."
                 )
-                time.sleep(1)  # 短暂延迟后重试
+                time.sleep(1)  # Wait for a short time before retrying
             else:
                 print(
-                    f"[Container {container_id}] 已达到最大重试次数，放弃处理区块 {slot}"
+                    f"[Container {container_id}] Reached maximum retry count, giving up on block {slot}"
                 )
                 return False
 
-    # 如果执行到这里，说明所有重试都失败了
+    # If we reach here, all retries have failed
     return False
 
 
 @app.function(timeout=60)
 def get_latest_slot_wrapper(timeout: int = 30) -> Optional[int]:
     """
-    获取Solana主网上的最新区块号的包装函数
+    Wrapper function to get the latest block number from Solana mainnet
 
     Args:
-        timeout: RPC请求超时时间（秒）
+        timeout: RPC request timeout (seconds)
 
     Returns:
-        最新的区块号，如果请求失败则返回None
+        The latest block number, or None if the request fails
     """
     return get_latest_slot(timeout)
 
@@ -217,10 +223,10 @@ def get_latest_slot_wrapper(timeout: int = 30) -> Optional[int]:
 @app.function(volumes={VOLUME_DIR: volume})
 def get_highest_processed_slot_wrapper() -> int:
     """
-    从数据库中获取已处理的最高区块号的包装函数
+    Wrapper function to get the highest processed block number from the database
 
     Returns:
-        数据库中最高的区块号，如果数据库为空则返回0
+        The highest block number in the database, or 0 if the database is empty
     """
     return get_highest_processed_slot(str(DB_PATH))
 
@@ -239,16 +245,18 @@ def fetch_blocks_range(start_slot: int, end_slot: int, timeout: int = 60):
     ensure_database_exists_call = ensure_database_exists.spawn()
     ensure_database_exists_call.get()  # Wait for database to be ready
 
-    # 准备所有需要处理的区块号
+    # Prepare all slots to be processed
     slots = list(range(start_slot, end_slot + 1))
     total_slots = len(slots)
 
-    print(f"准备处理 {total_slots} 个区块，每个区块使用单独的容器...")
+    print(
+        f"Preparing to process {total_slots} blocks, each using a separate container..."
+    )
 
-    # 并行处理所有区块，每个区块一个容器
+    # Process all blocks in parallel, each block one container
     results = list(process_block.map(slots, kwargs={"timeout": timeout}))
 
-    # 统计成功和失败的数量
+    # Count successful and failed blocks
     success_count = sum(1 for r in results if r)
     fail_count = sum(1 for r in results if not r)
 
@@ -260,13 +268,13 @@ def fetch_blocks_range(start_slot: int, end_slot: int, timeout: int = 60):
 @app.function(timeout=3600, volumes={VOLUME_DIR: volume})  # 1 hour maximum runtime
 def fetch_latest_blocks(max_blocks: int = 80, timeout: int = 60):
     """
-    自动获取最新的区块数据
+    Automatically fetch the latest block data
 
     Args:
-        max_blocks: 最多获取的区块数量
-        timeout: RPC请求超时时间（秒）
+        max_blocks: Maximum number of blocks to fetch
+        timeout: RPC request timeout (seconds)
     """
-    # 获取最新区块号和已处理的最高区块号
+    # Get latest block number and highest processed block number
     latest_slot_call = get_latest_slot_wrapper.spawn(timeout)
     highest_processed_call = get_highest_processed_slot_wrapper.spawn()
 
@@ -276,96 +284,104 @@ def fetch_latest_blocks(max_blocks: int = 80, timeout: int = 60):
     )
 
     if latest_slot is None:
-        print("无法获取最新区块号，退出")
+        print("Unable to get latest block number, exiting")
         return
 
-    # 计算需要获取的区块范围
+    # Calculate block range to fetch
     start_slot = highest_processed + 1
     end_slot = min(latest_slot, start_slot + max_blocks - 1)
 
     if start_slot > end_slot:
-        print(f"数据库已是最新，当前最高区块: {highest_processed}")
+        print(f"Database is latest, current highest block: {highest_processed}")
         return
 
     print(
-        f"获取区块范围: {start_slot} 到 {end_slot}（共 {end_slot - start_slot + 1} 个区块）"
+        f"Fetching block range: {start_slot} to {end_slot} (total {end_slot - start_slot + 1} blocks)"
     )
 
-    # 准备所有需要处理的区块号
+    # Prepare all slots to be processed
     slots = list(range(start_slot, end_slot + 1))
     total_slots = len(slots)
 
-    print(f"准备处理 {total_slots} 个区块，每个区块使用单独的容器...")
+    print(
+        f"Preparing to process {total_slots} blocks, each using a separate container..."
+    )
 
-    # 确保数据库存在
+    # Ensure database exists
     ensure_database_exists_call = ensure_database_exists.spawn()
     ensure_database_exists_call.get()  # Wait for database to be ready
 
-    # 并行处理所有区块，每个区块一个容器
+    # Process all blocks in parallel, each block one container
     results = list(process_block.map(slots, kwargs={"timeout": timeout}))
 
-    # 统计成功和失败的数量
+    # Count successful and failed blocks
     success_count = sum(1 for r in results if r)
     fail_count = sum(1 for r in results if not r)
 
-    print(f"处理完成。成功处理 {success_count} 个区块，失败 {fail_count} 个区块。")
+    print(
+        f"Processing completed. Successfully processed {success_count} blocks, failed {fail_count} blocks."
+    )
 
 
 @app.function(
-    timeout=300,  # 5分钟超时
+    timeout=300,  # 5 minutes timeout
     volumes={VOLUME_DIR: volume},
-    schedule=modal.Period(seconds=20),  # 每20秒运行一次
+    schedule=modal.Period(seconds=20),  # Run every 20 seconds
 )
 def auto_fetch_latest_blocks(max_blocks: int = 80, timeout: int = 60):
     """
-    定时任务：每20秒自动获取最新的区块数据
+    Timer task: Automatically fetch the latest block data every 20 seconds
 
-    此函数由Modal的调度器自动每20秒调用一次，检查是否有新区块，并将它们保存到数据库中。
-    使用锁机制确保同一时间只有一个实例在运行。
+    This function is automatically called every 20 seconds by the Modal scheduler to check for new blocks and save them to the database.
+    Using lock mechanism to ensure only one instance is running at the same time.
 
     Args:
-        max_blocks: 每次最多获取的区块数量
-        timeout: RPC请求超时时间（秒）
+        max_blocks: Maximum number of blocks to fetch each time
+        timeout: RPC request timeout (seconds)
     """
     lock_file = Path(VOLUME_DIR) / "auto_fetch.lock"
 
-    # 检查锁文件是否存在
+    # Check if lock file exists
     if lock_file.exists():
-        # 读取锁文件中的时间戳
+        # Read lock file timestamp
         try:
             with open(lock_file, "r") as f:
                 lock_time_str = f.read().strip()
                 lock_time = datetime.fromisoformat(lock_time_str)
                 current_time = datetime.now()
-                # 如果锁超过10分钟，认为是死锁，可以强制解除
+                # If lock is older than 10 minutes, consider it deadlocked, can force unlock
                 if (current_time - lock_time).total_seconds() < 600:
                     print(
-                        f"上一次任务仍在运行中 [锁创建时间: {lock_time_str}]，跳过本次执行"
+                        f"Previous task still running [lock creation time: {lock_time_str}]，skip this execution"
                     )
                     return
                 else:
-                    print(f"发现过期的锁 [锁创建时间: {lock_time_str}]，强制解除")
+                    print(
+                        f"Found expired lock [lock creation time: {lock_time_str}]，force unlock"
+                    )
         except Exception as e:
-            print(f"读取锁文件出错: {e}，假设锁已过期")
+            print(f"Error reading lock file: {e}，assume lock expired")
 
-    # 创建锁文件
+    # Create lock file
     try:
         with open(lock_file, "w") as f:
             current_time = datetime.now()
             f.write(current_time.isoformat())
-        volume.commit()  # 确保锁文件被保存到卷中
+        volume.commit()  # Ensure lock file is saved to volume
     except Exception as e:
-        print(f"创建锁文件失败: {e}")
+        print(f"Error creating lock file: {e}")
         return
 
     try:
-        print(f"开始定时任务 [时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]")
+        print(
+            f"Starting scheduled task [time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]"
+        )
 
-        # 确保数据库存在
+        # Ensure database exists
         ensure_database_exists_call = ensure_database_exists.spawn()
         ensure_database_exists_call.get()  # Wait for database to be ready
 
-        # 获取最新区块号和已处理的最高区块号
+        # Get latest block number and highest processed block number
         latest_slot_call = get_latest_slot_wrapper.spawn(timeout)
         highest_processed_call = get_highest_processed_slot_wrapper.spawn()
 
@@ -375,59 +391,63 @@ def auto_fetch_latest_blocks(max_blocks: int = 80, timeout: int = 60):
         )
 
         if latest_slot is None:
-            print("无法获取最新区块号，退出")
+            print("Unable to get latest block number, exiting")
             return
 
-        # 计算需要获取的区块范围
+        # Calculate block range to fetch
         start_slot = highest_processed + 1
         end_slot = min(latest_slot, start_slot + max_blocks - 1)
 
         if start_slot > end_slot:
-            print(f"数据库已是最新，当前最高区块: {highest_processed}")
+            print(f"Database is latest, current highest block: {highest_processed}")
             return
 
         print(
-            f"定时任务获取区块范围: {start_slot} 到 {end_slot}（共 {end_slot - start_slot + 1} 个区块）"
+            f"Scheduled task fetching block range: {start_slot} to {end_slot} (total {end_slot - start_slot + 1} blocks)"
         )
 
-        # 准备所有需要处理的区块号
+        # Prepare all slots to be processed
         slots = list(range(start_slot, end_slot + 1))
         total_slots = len(slots)
 
-        print(f"准备处理 {total_slots} 个区块，每个区块使用单独的容器...")
+        print(
+            f"Preparing to process {total_slots} blocks, each using a separate container..."
+        )
 
-        # 并行处理所有区块，每个区块一个容器
+        # Process all blocks in parallel, each block one container
         results = list(process_block.map(slots, kwargs={"timeout": timeout}))
 
-        # 统计成功和失败的数量
+        # Count successful and failed blocks
         success_count = sum(1 for r in results if r)
         fail_count = sum(1 for r in results if not r)
 
         print(
-            f"定时任务完成。成功处理 {success_count} 个区块，失败 {fail_count} 个区块。"
+            f"Scheduled task completed. Successfully processed {success_count} blocks, failed {fail_count} blocks."
         )
-        print(f"定时任务结束 [时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]")
+        print(
+            f"Scheduled task ended [time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]"
+        )
 
     finally:
-        # 无论任务成功还是失败，都删除锁文件
+        # Regardless of task success or failure, delete lock file
         try:
             if lock_file.exists():
                 os.remove(lock_file)
-                volume.commit()  # 确保锁文件删除被保存到卷中
+                volume.commit()  # Ensure lock file deletion is saved to volume
         except Exception as e:
-            print(f"删除锁文件失败: {e}")
+            print(f"Error deleting lock file: {e}")
 
 
 @app.function(volumes={VOLUME_DIR: volume})
 def query_database_wrapper(sql_query: str) -> Dict[str, Any]:
     """
-    执行SQL查询并返回结果的包装函数
+    Wrapper function to execute SQL query and return results
 
     Args:
-        sql_query: SQL查询语句
+        sql_query: SQL query statement
 
     Returns:
-        包含查询结果的字典
+        Dictionary containing query results
     """
     return query_database(str(DB_PATH), sql_query)
 
@@ -466,12 +486,14 @@ if __name__ == "__main__":
 
     with app.run():
         if args.schedule:
-            print("部署定时任务，每20秒自动获取最新区块...")
-            # 在这里我们不需要做任何事情，因为函数本身已经有schedule装饰器
-            # 只需要确保通过modal deploy部署应用即可
-            print("定时任务已配置，请使用 'modal deploy modal_app.py' 部署应用")
+            print("Deploy scheduled task, auto fetch latest blocks every 20 seconds")
+            # We don't need to do anything here because the function itself already has schedule decorator
+            # Just ensure to pass through modal deploy to deploy the application
+            print(
+                "Scheduled task configured, use 'modal deploy modal_app.py' to deploy application"
+            )
         elif args.latest:
-            print("获取最新区块...")
+            print("Fetching latest block...")
             fetch_latest_blocks_call = fetch_latest_blocks.spawn(
                 args.max_blocks, args.timeout
             )
@@ -508,17 +530,19 @@ if __name__ == "__main__":
 @app.local_entrypoint()
 def main():
     """
-    本地入口点，可以通过 'modal run modal_app.py' 来执行
+    Local entry point, can be executed by 'modal run modal_app.py'
     """
-    print("Solana区块数据处理应用")
-    print("可用命令:")
-    print("  获取最新区块: modal run modal_app.py --latest [--max-blocks N]")
-    print('  查询数据库: modal run modal_app.py --query "SQL查询语句"')
-    print("  获取特定范围: modal run modal_app.py START_SLOT END_SLOT")
-    print("  部署定时任务: modal deploy modal_app.py")
+    print("Solana block data processing application")
+    print("Available commands:")
+    print("  Get latest blocks: modal run modal_app.py --latest [--max-blocks N]")
+    print('  Query database: modal run modal_app.py --query "SQL query statement"')
+    print("  Get specific range: modal run modal_app.py START_SLOT END_SLOT")
+    print("  Deploy scheduled task: modal deploy modal_app.py")
     print("")
-    print("可选参数:")
-    print("  --timeout N: RPC请求超时时间（秒），默认30")
-    print("  --max-blocks N: 每次最多获取的区块数量，默认80")
+    print("Optional parameters:")
+    print("  --timeout N: RPC request timeout (seconds), default 30")
+    print("  --max-blocks N: Maximum number of blocks to fetch, default 80")
     print("")
-    print("部署后，auto_fetch_latest_blocks函数将每20秒自动运行一次")
+    print(
+        "After deployment, auto_fetch_latest_blocks function will run automatically every 20 seconds"
+    )

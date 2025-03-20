@@ -19,10 +19,9 @@ volume = modal.Volume.from_name("solana-db-volume", create_if_missing=True)
 
 # Constants
 VOLUME_DIR = "/data"
-DB_FILENAME = "solana_blocks.db"
+DB_FILENAME = "solana_data.db"
 DB_PATH = Path(VOLUME_DIR) / DB_FILENAME
 
-# Import functions from our common utils module
 from common_utils import (
     get_block,
     save_to_sqlite,

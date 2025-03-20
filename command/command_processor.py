@@ -1,16 +1,7 @@
 import logging
 from telegram import Update
-from telegram.ext import (
-    ContextTypes,
-    BaseHandler,
-    CommandHandler,
-    MessageHandler,
-    ConversationHandler,
-    CallbackQueryHandler,
-    filters,
-)
-
-from bot.command_handlers import (
+from telegram.ext import ContextTypes
+from . import (
     cmd_sol_balance,
     cmd_token_info,
     cmd_account_details,
@@ -27,15 +18,14 @@ from bot.command_handlers import (
     cmd_list_wallets,
     cmd_remove_wallet,
     cmd_my_balance,
+    get_command_list,
 )
-from bot.command_handlers.commands.general_commands import get_command_list
 
 logger = logging.getLogger(__name__)
 
 
 class CommandProcessor:
     def __init__(self):
-        # Define the handler function, parameter prompt, and parameter requirement for each command
         self.handlers = {
             "sol_balance": {
                 "handler": cmd_sol_balance,

@@ -1,8 +1,8 @@
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes
-from services.solana_service import SolanaService
-from bot.command_handlers.utils import _reply
+from services.solana_rpc_service import SolanaService
+from command.utils import _reply
 
 logger = logging.getLogger(__name__)
 solana_service = SolanaService()

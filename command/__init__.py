@@ -1,4 +1,4 @@
-from .commands.solana_commands import (
+from .solana_commands import (
     cmd_sol_balance,
     cmd_token_info,
     cmd_account_details,
@@ -10,15 +10,17 @@ from .commands.solana_commands import (
     cmd_token_accounts,
     cmd_slot,
 )
-from .commands.wallet_commands import (
+from .wallet_commands import (
     cmd_add_wallet,
     cmd_verify_wallet,
     cmd_list_wallets,
     cmd_remove_wallet,
     cmd_my_balance,
 )
-from .commands.general_commands import (
+from .general_commands import (
     cmd_help,
     get_command_list,
+    HELP_TEXT,
 )
-from .handlers.verification import handle_verification_callback
+from .verification import handle_verification_callback
+from .command_processor import CommandProcessor

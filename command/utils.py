@@ -6,8 +6,10 @@ from telegram.ext import ContextTypes
 logger = logging.getLogger(__name__)
 
 
-async def _reply(update: Update, text: str) -> Optional[Any]:
+async def _reply(
+    update: Update, text: str, parse_mode: Optional[str] = None
+) -> Optional[Any]:
     """If update.message exists, send a reply message, otherwise return None"""
     if update.message:
-        return await update.message.reply_text(text)
+        return await update.message.reply_text(text, parse_mode=parse_mode)
     return None

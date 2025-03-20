@@ -5,3 +5,9 @@
 *.db-trace
 *.db-trace.json
 .vscode
+*.json
+*.jsonl
+*.jsonl.gz
+*.jsonl.gz.part
+*.jsonl.gz.part.tmp
+*.jsonl.gz.part.tmp.tmp

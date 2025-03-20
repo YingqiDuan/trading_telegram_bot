@@ -1,6 +1,6 @@
 import time
 
-DB_PATH = "modal/solana_data.db"
+DB_PATH = "database/solana_data.db"
 
 from common_utils import (
     get_latest_slot,
@@ -36,13 +36,12 @@ def main():
                         print(f"Error saving slot {slot}: {e}")
                 else:
                     print(f"Unable to get block data for slot {slot}")
-                # Wait 0.2 seconds after processing each block
-                time.sleep(0.2)
+                # Wait 0.1 seconds after processing each block
         else:
             print("No new blocks")
 
         # Check for latest slot every 5 seconds
-        time.sleep(5)
+        time.sleep(2)
 
 
 if __name__ == "__main__":

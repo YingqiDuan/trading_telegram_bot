@@ -2,8 +2,8 @@ import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from services.user_service import UserService
-from services.solana_service import SolanaService
-from bot.command_handlers.utils import _reply
+from services.solana_rpc_service import SolanaService
+from command.utils import _reply
 
 logger = logging.getLogger(__name__)
 user_service = UserService()
@@ -85,6 +85,8 @@ async def cmd_list_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.effective_user:
         return
     user_id = str(update.effective_user.id)
+    # debug
+    print(user_id)
     wallets = user_service.get_user_wallets(user_id)
     if not wallets:
         return await _reply(

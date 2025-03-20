@@ -30,19 +30,18 @@ The bot can handle the following types of requests:
 ## Project Structure
 
 ```
-├── bot/                   # Telegram bot implementation
-│   ├── command_handlers/  # Handlers for bot commands
-│   └── telegram_bot/      # Core telegram bot functionality
-├── modal/                 # Modal app for blockchain data collection
-├── services/              # Core services
-│   ├── solana_service/    # Services for interacting with Solana
-│   ├── user_service/      # User management and wallet services
-│   ├── openai_service.py  # Natural language processing
-│   └── rate_limiter.py    # Rate limiting functionality
-├── config.py              # Configuration settings
-├── main.py                # Application entry point
-├── requirements.txt       # Project dependencies
-└── user_wallets.json      # User wallet storage
+├── command/              # Bot command handlers
+├── telegram_bot/         # Core telegram bot functionality
+├── modal/                # Modal app for blockchain data collection
+├── services/             # Core services
+│   ├── solana_service/   # Services for interacting with Solana
+│   ├── user_service/     # User management and wallet services
+│   ├── openai_service.py # Natural language processing
+│   └── rate_limiter.py   # Rate limiting functionality
+├── config.py             # Configuration settings
+├── main.py               # Application entry point
+├── requirements.txt      # Project dependencies
+└── user_wallets.json     # User wallet storage
 ```
 
 ## Setup Instructions

@@ -1,1 +1,0 @@
-from .verification import handle_verification_callback

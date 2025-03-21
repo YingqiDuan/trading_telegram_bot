@@ -127,11 +127,6 @@ def verify_wallet(
                 f"Pending verification method is {pdata.get('method')}, please use that method.",
             )
         ok, msg = _verify_signature(address, pdata["challenge"], verification_data)
-        if ok:
-            # Mark the wallet as verified if the signature is valid
-            from .wallet_manager import mark_wallet_verified
-
-            mark_wallet_verified(user_data, user_id, address)
         return (
             (ok, msg if not ok else f"Wallet {address} verified successfully! ✅")
             if ok
@@ -146,11 +141,6 @@ def verify_wallet(
         lamports = pdata["amount"]
         sol_amount = lamports / 1_000_000_000
         ok, msg = _verify_transfer(address, lamports)
-        if ok:
-            # Mark the wallet as verified if the transfer is valid
-            from .wallet_manager import mark_wallet_verified
-
-            mark_wallet_verified(user_data, user_id, address)
         return (
             ok,
             (
@@ -168,11 +158,6 @@ def verify_wallet(
                 f"Pending verification method is {pdata.get('method')}, please use that method.",
             )
         ok, msg = _verify_private_key(address, verification_data)
-        if ok:
-            # Mark the wallet as verified if the private key is valid
-            from .wallet_manager import mark_wallet_verified
-
-            mark_wallet_verified(user_data, user_id, address)
         return (
             (ok, msg if not ok else f"Wallet {address} verified successfully! ✅")
             if ok

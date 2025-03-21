@@ -5,9 +5,14 @@
         "address": "3nk168Sn6V93neKoiY6Vm4Lu21Zn72RUBxYp7mS1pQnf",
         "label": "My Wallet",
         "verified": false,
-        "added_at": 1742494637
+        "added_at": 1742499870
       }
     ],
-    "pending_verifications": {}
+    "pending_verifications": {
+      "3nk168Sn6V93neKoiY6Vm4Lu21Zn72RUBxYp7mS1pQnf": {
+        "method": "private_key",
+        "expires_at": 1742513939
+      }
+    }
   }
 }

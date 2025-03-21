@@ -18,7 +18,6 @@ from .wallet_commands import (
     cmd_my_balance,
 )
 from .general_commands import (
-    cmd_help,
     get_command_list,
     HELP_TEXT,
 )

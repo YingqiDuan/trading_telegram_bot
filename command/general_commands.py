@@ -29,17 +29,8 @@ HELP_TEXT = (
 )
 
 
-async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send help information about available commands"""
-    if not update.message:
-        return
-    # Use HTML formatted help text
-    await _reply(update, HELP_TEXT, parse_mode="HTML")
-
-
 def get_command_list():
     return [
-        ("start", "Start the bot and view available commands"),
         ("sol_balance", "Get SOL balance"),
         ("token_info", "Get token information"),
         ("account_details", "Get account details"),

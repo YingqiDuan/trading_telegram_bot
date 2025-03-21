@@ -49,3 +49,12 @@ async def handle_verification_callback(
 
     if update.effective_chat:
         await context.bot.send_message(chat_id=update.effective_chat.id, text=message)
+
+    if hasattr(context, "bot_data") and "bot_instance" in context.bot_data:
+        bot_instance = context.bot_data["bot_instance"]
+        if hasattr(bot_instance, "send_main_menu"):
+            await bot_instance.send_main_menu(update, context)
+    else:
+        logger.warning(
+            "Could not access bot instance to show main menu after verification"
+        )

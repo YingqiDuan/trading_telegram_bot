@@ -7,7 +7,6 @@ from . import (
     cmd_account_details,
     cmd_latest_block,
     cmd_network_status,
-    cmd_help,
     cmd_transaction,
     cmd_recent_transactions,
     cmd_validators,
@@ -65,7 +64,6 @@ class CommandProcessor:
             "latest_block": {"handler": cmd_latest_block, "requires": False},
             "network_status": {"handler": cmd_network_status, "requires": False},
             "slot": {"handler": cmd_slot, "requires": False},
-            "help": {"handler": cmd_help, "requires": False},
             "add_wallet": {
                 "handler": cmd_add_wallet,
                 "prompt": "Enter wallet address and label:",

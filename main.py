@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 
 
 def main():
-    """Main entry point for the Solana Telegram Bot"""
     logger.info("Starting Solana Blockchain Assistant Telegram Bot")
     bot = SolanaTelegramBot()
     bot.run()

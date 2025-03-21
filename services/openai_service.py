@@ -156,7 +156,13 @@ class OpenAIService:
         }
 
     async def convert_to_command(self, user_input: str) -> str:
-        """Convert natural language input to a command using function calling
+        """Convert natural language input to a command using a step-by-step approach.
+
+        Steps:
+        1. Check if input matches RPC commands without parameters
+        2. Check if input matches wallet commands without parameters
+        3. If no match so far, return 'cannot complete'
+        4. If a command is found, extract parameters if any
 
         Args:
             user_input: The user's natural language query
@@ -165,28 +171,95 @@ class OpenAIService:
             A command string or 'cannot complete' if conversion fails
         """
         try:
-            # Create function definitions for OpenAI function calling
-            functions = []
-            for cmd_name, cmd_def in self.commands.items():
-                function_def = {
-                    "type": "function",
-                    "function": {
-                        "name": cmd_name,
-                        "description": cmd_def["description"],
-                        "parameters": {
-                            "type": "object",
-                            "properties": cmd_def["parameters"],
-                            "required": cmd_def["required"],
-                        },
-                    },
-                }
-                functions.append(function_def)
-
-            system_message = (
-                "You are a helpful assistant that processes natural language to execute Solana blockchain commands. "
-                "Determine which command the user wants to execute and extract any required parameters. "
-                "If you're unsure about the user's intention, choose the command that best matches the request."
+            # Step 1: Check if input matches RPC commands (without parameters)
+            rpc_command = await self._try_match_command_category(
+                user_input,
+                [
+                    "sol_balance",
+                    "token_info",
+                    "account_details",
+                    "transaction",
+                    "recent_tx",
+                    "token_accounts",
+                    "validators",
+                    "latest_block",
+                    "network_status",
+                    "slot",
+                ],
+                "You are analyzing if this message is requesting a Solana blockchain query or RPC command.",
             )
+
+            if rpc_command and rpc_command != "cannot complete":
+                logger.info(f"Matched RPC command: {rpc_command}")
+
+                # If the command requires parameters, try to extract them
+                if self.commands[rpc_command]["required"]:
+                    return await self._extract_parameters(user_input, rpc_command)
+                else:
+                    return rpc_command
+
+            # Step 2: Check if input matches wallet commands (without parameters)
+            wallet_command = await self._try_match_command_category(
+                user_input,
+                [
+                    "add_wallet",
+                    "verify_wallet",
+                    "my_wallets",
+                    "remove_wallet",
+                    "my_balance",
+                    "help",
+                ],
+                "You are analyzing if this message is requesting a wallet management operation.",
+            )
+
+            if wallet_command and wallet_command != "cannot complete":
+                logger.info(f"Matched wallet command: {wallet_command}")
+
+                # If the command requires parameters, try to extract them
+                if self.commands[wallet_command]["required"]:
+                    return await self._extract_parameters(user_input, wallet_command)
+                else:
+                    return wallet_command
+
+            # Step 3: If we get here, no command was matched
+            logger.warning("No command matched the user input")
+            return "cannot complete"
+
+        except Exception as e:
+            logger.error(f"Error in convert_to_command: {e}")
+            return "cannot complete"
+
+    async def _try_match_command_category(
+        self, user_input: str, command_list: list, system_message: str
+    ) -> str:
+        """Try to match the user input against a specific category of commands.
+
+        Args:
+            user_input: The user's query
+            command_list: List of command names to check against
+            system_message: System message for the AI model
+
+        Returns:
+            A matched command name or 'cannot complete'
+        """
+        try:
+            # Build functions list for just this category
+            functions = []
+            for cmd_name in command_list:
+                if cmd_name in self.commands:
+                    function_def = {
+                        "type": "function",
+                        "function": {
+                            "name": cmd_name,
+                            "description": self.commands[cmd_name]["description"],
+                            "parameters": {
+                                "type": "object",
+                                "properties": {},
+                                "required": [],
+                            },
+                        },
+                    }
+                    functions.append(function_def)
 
             response = await asyncio.to_thread(
                 lambda: self.client.chat.completions.create(
@@ -206,28 +279,142 @@ class OpenAIService:
             # Check if there's a function call response
             if response_message.tool_calls:
                 tool_call = response_message.tool_calls[0]
-                function_name = tool_call.function.name
+                return tool_call.function.name
+            else:
+                return "cannot complete"
 
-                # Get arguments as a dict
+        except Exception as e:
+            logger.error(f"Error in _try_match_command_category: {e}")
+            return "cannot complete"
+
+    async def _extract_parameters(self, user_input: str, command_name: str) -> str:
+        """Extract parameters for a specific command from user input.
+
+        Args:
+            user_input: The user's query
+            command_name: The command to extract parameters for
+
+        Returns:
+            Command string with parameters or just the command name
+        """
+        try:
+            # 如果用户输入与命令名非常相似，可能没有包含参数，直接返回命令名
+            # 例如用户输入"recent tx"时，不应该把"recent tx"当作参数
+            if user_input.lower().replace(
+                " ", "_"
+            ) == command_name.lower() or user_input.lower() == command_name.lower().replace(
+                "_", " "
+            ):
+                logger.info(
+                    f"User input '{user_input}' matches command name '{command_name}', not extracting parameters"
+                )
+                return command_name
+
+            # 创建函数定义，仅用于此命令
+            function_def = {
+                "type": "function",
+                "function": {
+                    "name": command_name,
+                    "description": self.commands[command_name]["description"],
+                    "parameters": {
+                        "type": "object",
+                        "properties": self.commands[command_name]["parameters"],
+                        "required": self.commands[command_name]["required"],
+                    },
+                },
+            }
+
+            # 增强系统提示，明确参数需求和验证要求
+            system_message = (
+                f"You are extracting parameters for the '{command_name}' command from the user's message. "
+                f"Only extract parameters if they are CLEARLY and EXPLICITLY stated in the message. "
+                f"DO NOT extract the command name itself as a parameter. "
+                f"For wallet addresses, token addresses, and transaction signatures, only extract them "
+                f"if they follow the expected format (base58 or base64 encoded string, at least 32 characters). "
+                f"If no valid parameters are found, return an empty object."
+            )
+
+            response = await asyncio.to_thread(
+                lambda: self.client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": system_message},
+                        {"role": "user", "content": user_input},
+                    ],
+                    tools=[function_def],
+                    tool_choice={
+                        "type": "function",
+                        "function": {"name": command_name},
+                    },
+                )
+            )
+
+            # 提取函数调用详情
+            response_message = response.choices[0].message
+
+            # 检查是否有函数调用响应
+            if response_message.tool_calls:
+                tool_call = response_message.tool_calls[0]
                 import json
 
                 function_args = json.loads(tool_call.function.arguments)
 
-                # Build the command string
-                command_parts = [function_name]
+                # 验证参数 - 对于常见参数类型增加额外验证
+                valid_args = {}
+                for param_name, value in function_args.items():
+                    # 跳过空值
+                    if not value:
+                        continue
+
+                    # 验证地址和签名格式
+                    if param_name in [
+                        "wallet_address",
+                        "token_address",
+                        "account_address",
+                        "transaction_signature",
+                    ]:
+                        # 简单验证：地址和签名应至少有32个字符
+                        if isinstance(value, str) and len(value) >= 32:
+                            valid_args[param_name] = value
+                        else:
+                            logger.warning(
+                                f"Rejected invalid parameter {param_name}: {value}"
+                            )
+                    # 验证整数参数
+                    elif param_name == "limit":
+                        try:
+                            limit = int(value)
+                            if limit > 0:
+                                valid_args[param_name] = limit
+                        except (ValueError, TypeError):
+                            logger.warning(f"Rejected invalid limit parameter: {value}")
+                    # 其他参数类型直接添加
+                    else:
+                        valid_args[param_name] = value
+
+                # 如果没有有效参数，直接返回命令名
+                if not valid_args:
+                    logger.info(
+                        f"No valid parameters found for '{command_name}' in '{user_input}'"
+                    )
+                    return command_name
+
+                # 构建命令字符串
+                command_parts = [command_name]
 
                 # Add arguments in order based on the command definition
-                for param_name in self.commands[function_name]["parameters"]:
-                    if param_name in function_args and function_args[param_name]:
-                        command_parts.append(str(function_args[param_name]))
+                for param_name in self.commands[command_name]["parameters"]:
+                    if param_name in valid_args:
+                        command_parts.append(str(valid_args[param_name]))
 
                 final_command = " ".join(command_parts)
-                logger.info(f"Function call produced command: {final_command}")
+                logger.info(f"Extracted parameters for command: {final_command}")
                 return final_command
             else:
-                logger.warning("No function call in response")
-                return "cannot complete"
+                # 如果没有找到参数，仅返回命令名
+                return command_name
 
         except Exception as e:
-            logger.error(f"Error in function calling: {e}")
-            return "cannot complete"
+            logger.error(f"Error in _extract_parameters: {e}")
+            # 错误时返回命令名
+            return command_name

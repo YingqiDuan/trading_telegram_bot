@@ -1,6 +1,6 @@
 # Solana Telegram Bot
 
-A Telegram bot that uses natural language processing to interact with the Solana blockchain. Users can ask questions in natural language, which will be converted to commands for retrieving Solana blockchain data.
+A Telegram bot that uses natural language processing to interact with the Solana blockchain. Users can ask questions in natural language, which will be converted to commands for retrieving Solana blockchain data and managing Solana wallet.
 
 ## Features
 
@@ -30,18 +30,31 @@ The bot can handle the following types of requests:
 ## Project Structure
 
 ```
-├── command/              # Bot command handlers
-├── telegram_bot/         # Core telegram bot functionality
-├── modal/                # Modal app for blockchain data collection
-├── services/             # Core services
-│   ├── solana_service/   # Services for interacting with Solana
-│   ├── user_service/     # User management and wallet services
-│   ├── openai_service.py # Natural language processing
-│   └── rate_limiter.py   # Rate limiting functionality
-├── config.py             # Configuration settings
-├── main.py               # Application entry point
-├── requirements.txt      # Project dependencies
-└── user_wallets.json     # User wallet storage
+├── command/                    # Bot command handlers
+│   ├── command_processor.py    # Central command processing
+│   ├── general_commands.py     # Basic bot commands
+│   ├── solana_commands.py      # Solana blockchain commands
+│   ├── wallet_commands.py      # Wallet management commands
+│   ├── verification.py         # Wallet verification logic
+│   └── utils.py                # Command utilities
+├── telegram_bot/               # Core telegram bot functionality
+│   ├── solana_bot.py           # Main bot implementation
+│   └── __init__.py             # Package initialization
+├── database/                   # Database and data collection
+│   ├── modal_app.py            # Modal app for blockchain data collection
+│   ├── create_database.py      # Database schema and setup
+│   ├── common_utils.py         # Common database utilities
+│   └── other tools             # Database testing and utilities
+├── services/                   # Core services
+│   ├── solana_rpc_service.py   # Services for interacting with Solana
+│   ├── user_service.py         # User management interface
+│   ├── user_service_sqlite.py  # SQLite implementation of user service
+│   ├── openai_service.py       # Natural language processing
+│   └── rate_limiter.py         # Rate limiting functionality
+├── config.py                   # Configuration settings
+├── main.py                     # Application entry point
+├── requirements.txt            # Project dependencies
+└── user_wallets.db             # SQLite database for user wallet storage
 ```
 
 ## Setup Instructions
@@ -60,7 +73,7 @@ The bot can handle the following types of requests:
 3. **Configuration**:
    - Edit `config.py` with your own values:
      - `TELEGRAM_BOT_TOKEN`: Your Telegram bot token from BotFather
-     - `OPEN_AI_API_KEY`: Your OpenAI API key (optional)
+     - `OPEN_AI_API_KEY`: Your OpenAI API key
      - `SOLANA_RPC_URL`: Solana RPC endpoint (default is public mainnet)
 
 4. **Run the Bot**:
@@ -71,7 +84,7 @@ The bot can handle the following types of requests:
 5. **Modal Setup** (Optional - for blockchain data collection):
    - To set up the Modal app for blockchain data collection:
    ```
-   modal deploy modal/modal_app.py
+   modal deploy database/modal_app.py
    ```
 
 ## Usage Examples
@@ -101,10 +114,17 @@ The bot provides features to help users manage their Solana wallets:
 
 The bot works by:
 1. Receiving natural language input from the user
-2. Processing the input through an LLM 
+2. Processing the input through the GPT-4o-mini model
 3. Converting the natural language to a structured command
 4. Executing the corresponding Solana RPC call
 5. Returning the formatted result to the user
+
+### Data Storage
+
+The bot uses SQLite database (user_wallets.db) to store:
+- User wallet addresses and labels
+- Verification status and timestamps
+- Challenge messages for wallet verification
 
 ### Rate Limiting
 

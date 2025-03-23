@@ -31,6 +31,9 @@ from command import (
 logger = logging.getLogger(__name__)
 SELECT_OPTION, WAITING_PARAM = 0, 1
 
+# 初始化服务
+user_service = UserService()
+
 # Callback data constants and command prefix
 SOLANA_TOPIC_CB = "topic_solana"
 WALLET_TOPIC_CB = "topic_wallet"
@@ -373,6 +376,28 @@ class SolanaTelegramBot:
             if context.user_data is not None:
                 context.user_data["pending"] = cmd
             return WAITING_PARAM
+
+        # 特殊处理 verify_wallet 各种验证方法的情况
+        if (
+            cmd == "verify_wallet"
+            and "verify_method" in context.user_data
+            and "verify_address" in context.user_data
+        ):
+            address = context.user_data.pop("verify_address")
+            method = context.user_data.pop("verify_method")
+
+            # 检查当前用户是否有效
+            if update.effective_user:
+                user_id = str(update.effective_user.id)
+                # 使用用户输入的验证数据（私钥、签名等）进行验证
+                success, message = user_service.verify_wallet(
+                    user_id, address, method, user_input
+                )
+                await update.message.reply_text(message)
+
+                # 完成后返回主菜单
+                await self.send_main_menu(update, context)
+                return SELECT_OPTION
 
         # 处理普通参数
         context.args = user_input.split()

@@ -46,8 +46,10 @@ async def cmd_verify_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     user_id = str(update.effective_user.id)
     address = context.args[0]
-    if len(context.args) == 1:
-        keyboard = [
+
+    # 定义生成内联键盘的函数
+    def get_verification_keyboard(address):
+        return [
             [
                 InlineKeyboardButton(
                     "✅ Signature (Recommended)",
@@ -67,15 +69,28 @@ async def cmd_verify_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             ],
         ]
+
+    # 如果只提供了地址，或者提供了无效的验证方法，则显示选择键盘
+    if len(context.args) == 1 or (
+        len(context.args) > 1
+        and context.args[1].lower() not in ["signature", "transfer", "private_key"]
+    ):
+        keyboard = get_verification_keyboard(address)
+        if len(context.args) > 1 and context.args[1].lower() not in [
+            "signature",
+            "transfer",
+            "private_key",
+        ]:
+            message = f"Invalid verification method: '{context.args[1]}'. Please choose a valid method:"
+        else:
+            message = f"Choose verification method for {address}:"
         return await update.message.reply_text(
-            f"Choose verification method for {address}:",
+            message,
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
-    method = (
-        context.args[1].lower()
-        if context.args[1].lower() in ["signature", "transfer", "private_key"]
-        else "signature"
-    )
+
+    # 如果提供了有效的验证方法，继续验证流程
+    method = context.args[1].lower()
     data = context.args[2] if len(context.args) > 2 else None
     success, message = user_service.verify_wallet(user_id, address, method, data)
     await _reply(update, message)

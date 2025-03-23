@@ -6,6 +6,9 @@ from services.user_service import UserService
 logger = logging.getLogger(__name__)
 user_service = UserService()
 
+# 定义对话状态常量
+WAITING_PARAM = 1  # 等待参数的状态
+
 
 async def handle_verification_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -50,11 +53,11 @@ async def handle_verification_callback(
     if update.effective_chat:
         await context.bot.send_message(chat_id=update.effective_chat.id, text=message)
 
-    if hasattr(context, "bot_data") and "bot_instance" in context.bot_data:
-        bot_instance = context.bot_data["bot_instance"]
-        if hasattr(bot_instance, "send_main_menu"):
-            await bot_instance.send_main_menu(update, context)
-    else:
-        logger.warning(
-            "Could not access bot instance to show main menu after verification"
-        )
+        # 如果是需要用户进一步输入信息的验证方法（私钥或签名），设置对话状态为等待用户输入
+        if method in ["private_key", "signature"]:
+            if context.user_data is not None:
+                # 保存地址和方法，以便在用户输入验证数据后继续验证过程
+                context.user_data["pending"] = "verify_wallet"
+                context.user_data["verify_address"] = address
+                context.user_data["verify_method"] = method
+                return WAITING_PARAM

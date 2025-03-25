@@ -23,7 +23,6 @@ from services.rate_limiter import RateLimiter
 from services.user_service import UserService
 from command import (
     get_command_list,
-    handle_verification_callback,
     CommandProcessor,
     HELP_TEXT,
 )
@@ -199,10 +198,10 @@ class SolanaTelegramBot:
             ],
             [
                 InlineKeyboardButton(
-                    "My Wallets 📋", callback_data=f"{CMD_PREFIX}my_wallets"
+                    "Create Wallet 🆕", callback_data=f"{CMD_PREFIX}create_wallet"
                 ),
                 InlineKeyboardButton(
-                    "Verify Wallet ✓", callback_data=f"{CMD_PREFIX}verify_wallet"
+                    "My Wallets 📋", callback_data=f"{CMD_PREFIX}my_wallets"
                 ),
             ],
             [
@@ -279,10 +278,6 @@ class SolanaTelegramBot:
         self.app.add_handler(conv_handler)
 
         self.app.add_handler(
-            CallbackQueryHandler(handle_verification_callback, pattern="^verify_")
-        )
-
-        self.app.add_handler(
             CallbackQueryHandler(self.handle_topic_selection, pattern="^topic_")
         )
 
@@ -347,9 +342,6 @@ class SolanaTelegramBot:
             logger.error(f"Error executing command {cmd}: {e}")
             await update.message.reply_text(f"Error executing command /{cmd}: {str(e)}")
 
-        if cmd == "verify_wallet" and len(context.args) == 1:
-            return SELECT_OPTION
-
         await self.send_main_menu(update, context)
         return SELECT_OPTION
 
@@ -377,27 +369,73 @@ class SolanaTelegramBot:
                 context.user_data["pending"] = cmd
             return WAITING_PARAM
 
-        # 特殊处理 verify_wallet 各种验证方法的情况
-        if (
-            cmd == "verify_wallet"
-            and "verify_method" in context.user_data
-            and "verify_address" in context.user_data
-        ):
-            address = context.user_data.pop("verify_address")
-            method = context.user_data.pop("verify_method")
-
-            # 检查当前用户是否有效
+        # 特殊处理 add_wallet 命令的私钥输入
+        if cmd == "add_wallet" and "add_wallet_address" in context.user_data:
             if update.effective_user:
                 user_id = str(update.effective_user.id)
-                # 使用用户输入的验证数据（私钥、签名等）进行验证
-                success, message = user_service.verify_wallet(
-                    user_id, address, method, user_input
-                )
-                await update.message.reply_text(message)
+                address = context.user_data.pop("add_wallet_address")
+                label = context.user_data.pop("add_wallet_label", None)
+                private_key = user_input
 
-                # 完成后返回主菜单
-                await self.send_main_menu(update, context)
-                return SELECT_OPTION
+                from services.user_service_sqlite import _verify_private_key
+
+                # 检查钱包是否已经存在
+                wallets = user_service.get_user_wallets(user_id)
+                wallet_exists = any(
+                    w["address"].lower() == address.lower() for w in wallets
+                )
+
+                if wallet_exists:
+                    await update.message.reply_text(
+                        f"钱包 {address} 已经存在。如需重新验证，请先使用 /remove_wallet {address} 删除该钱包。"
+                    )
+                    await self.send_main_menu(update, context)
+                    return SELECT_OPTION
+
+                # 验证私钥
+                try:
+                    # 直接验证私钥
+                    success, verify_message = _verify_private_key(address, private_key)
+
+                    if not success:
+                        await update.message.reply_text(
+                            f"❌ 私钥验证失败: {verify_message}\n请检查您的私钥并重试。"
+                        )
+                        await self.send_main_menu(update, context)
+                        return SELECT_OPTION
+
+                    # 验证成功，添加钱包
+                    add_success, add_message = user_service.add_wallet(
+                        user_id, address, label
+                    )
+                    if not add_success:
+                        await update.message.reply_text(
+                            f"❌ 钱包添加失败: {add_message}"
+                        )
+                        await self.send_main_menu(update, context)
+                        return SELECT_OPTION
+
+                    # 设置钱包为已验证
+                    verify_success, _ = user_service.verify_wallet(
+                        user_id, address, "private_key", private_key
+                    )
+                    if not verify_success:
+                        await update.message.reply_text(
+                            f"⚠️ 警告：钱包已添加，但标记为已验证状态失败。您可以稍后再次验证。"
+                        )
+
+                    await update.message.reply_text(
+                        f"✅ 私钥验证成功，钱包 {address} 已添加并验证！"
+                    )
+                    await self.send_main_menu(update, context)
+                    return SELECT_OPTION
+                except Exception as e:
+                    logger.error(f"验证或添加钱包时出错: {e}")
+                    await update.message.reply_text(
+                        f"❌ 处理过程中出错: {str(e)}\n请稍后重试。"
+                    )
+                    await self.send_main_menu(update, context)
+                    return SELECT_OPTION
 
         # 处理普通参数
         context.args = user_input.split()
@@ -409,9 +447,6 @@ class SolanaTelegramBot:
                 f"Error: {str(e)}\nPlease try again with valid parameters."
             )
             await self.send_main_menu(update, context)
-            return SELECT_OPTION
-
-        if cmd == "verify_wallet" and len(context.args) == 1:
             return SELECT_OPTION
 
         await self.send_main_menu(update, context)
@@ -466,10 +501,8 @@ class SolanaTelegramBot:
                 chat_id=chat_id, text=f"Processing /{cmd}..."
             )
 
-            mock_update = Update(update_id=update.update_id, message=processing_message)
-
             try:
-                await self.processor.execute(cmd, mock_update, context)
+                await self.processor.execute(cmd, update, context)
 
                 if original_menu_callback:
                     try:

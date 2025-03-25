@@ -105,7 +105,7 @@ class OpenAIService:
             },
             # Wallet commands
             "add_wallet": {
-                "description": "Register a Solana wallet",
+                "description": "Register and verify a Solana wallet",
                 "parameters": {
                     "wallet_address": {
                         "type": "string",
@@ -113,20 +113,24 @@ class OpenAIService:
                     },
                     "label": {
                         "type": "string",
-                        "description": "Custom label for the wallet",
+                        "description": "Custom label for the wallet (optional)",
+                    },
+                    "private_key": {
+                        "type": "string",
+                        "description": "Private key to verify wallet ownership (optional)",
                     },
                 },
                 "required": ["wallet_address"],
             },
-            "verify_wallet": {
-                "description": "Verify wallet ownership",
+            "create_wallet": {
+                "description": "Generate a new Solana wallet",
                 "parameters": {
-                    "wallet_address": {
+                    "label": {
                         "type": "string",
-                        "description": "The Solana wallet address to verify",
-                    }
+                        "description": "Custom label for the wallet (optional)",
+                    },
                 },
-                "required": ["wallet_address"],
+                "required": [],
             },
             "my_wallets": {
                 "description": "List registered wallets",
@@ -203,7 +207,7 @@ class OpenAIService:
                 user_input,
                 [
                     "add_wallet",
-                    "verify_wallet",
+                    "create_wallet",
                     "my_wallets",
                     "remove_wallet",
                     "my_balance",

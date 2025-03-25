@@ -12,14 +12,13 @@ from .solana_commands import (
 )
 from .wallet_commands import (
     cmd_add_wallet,
-    cmd_verify_wallet,
     cmd_list_wallets,
     cmd_remove_wallet,
     cmd_my_balance,
+    cmd_create_wallet,
 )
 from .general_commands import (
     get_command_list,
     HELP_TEXT,
 )
-from .verification import handle_verification_callback
 from .command_processor import CommandProcessor

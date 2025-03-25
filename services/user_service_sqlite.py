@@ -191,7 +191,7 @@ class UserService:
             return None
 
     def generate_verification_challenge(
-        self, user_id: str, address: str, method: str = "signature"
+        self, user_id: str, address: str, method: str = "private_key"
     ) -> Tuple[bool, str]:
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -219,42 +219,7 @@ class UserService:
                     (user_id, address),
                 )
 
-                if method == "signature":
-                    nonce = "".join(
-                        random.choices(string.ascii_letters + string.digits, k=32)
-                    )
-                    challenge = f"Verify Telegram Bot Wallet: {address}\nNonce: {nonce}\nTimestamp: {now}"
-
-                    cursor.execute(
-                        """INSERT INTO pending_verifications 
-                           (user_id, address, method, challenge, nonce, expires_at) 
-                           VALUES (?, ?, ?, ?, ?, ?)""",
-                        (user_id, address, "signature", challenge, nonce, expire),
-                    )
-
-                    msg = (
-                        f"Please sign the following message with your Solana wallet, then send the signature:\n\n"
-                        f"```\n{challenge}\n```\n\n"
-                        f"Format: `/verify_wallet {address} signature YOUR_SIGNATURE_HERE`\n"
-                        f"This verification will expire in {WALLET_VERIFICATION_EXPIRY_SECONDS // 60} minutes."
-                    )
-                elif method == "transfer":
-                    lamports = random.randint(1000, 99000)
-                    sol_amount = lamports / 1_000_000_000
-
-                    cursor.execute(
-                        """INSERT INTO pending_verifications 
-                           (user_id, address, method, amount, expires_at) 
-                           VALUES (?, ?, ?, ?, ?)""",
-                        (user_id, address, "transfer", lamports, expire),
-                    )
-
-                    msg = (
-                        f"Please transfer **exactly {sol_amount:.9f} SOL** from your wallet to any address.\n\n"
-                        f"After the transfer, use `/verify_wallet {address} transfer` to complete verification.\n"
-                        f"This verification will expire in {WALLET_VERIFICATION_EXPIRY_SECONDS // 60} minutes."
-                    )
-                elif method == "private_key":
+                if method == "private_key":
                     cursor.execute(
                         """INSERT INTO pending_verifications 
                            (user_id, address, method, expires_at) 
@@ -263,12 +228,15 @@ class UserService:
                     )
 
                     msg = (
-                        f"⚠️ Security Warning ⚠️\nVerifying with a private key is risky and not recommended.\n\n"
-                        f"If you insist, please use the format: `/verify_wallet {address} private_key YOUR_PRIVATE_KEY`\n"
+                        f"Verifying with a private key.\n\n"
+                        f"Please use the format: `/verify_wallet {address} YOUR_PRIVATE_KEY`\n"
                         f"This verification will expire in {WALLET_VERIFICATION_EXPIRY_SECONDS // 60} minutes."
                     )
                 else:
-                    return False, "Invalid verification method."
+                    return (
+                        False,
+                        "Invalid verification method. Only private_key is supported.",
+                    )
 
                 return True, msg
         except sqlite3.Error as e:
@@ -282,7 +250,7 @@ class UserService:
         method: Optional[str] = None,
         verification_data: Optional[str] = None,
     ) -> Tuple[bool, str]:
-        """Verify wallet ownership using various methods."""
+        """Verify wallet ownership using private key method."""
         try:
             challenge_generated = False
             info_message = ""
@@ -293,7 +261,7 @@ class UserService:
 
                 # Check if there's a pending verification
                 cursor.execute(
-                    """SELECT method, challenge, nonce, amount, expires_at 
+                    """SELECT method, expires_at 
                        FROM pending_verifications 
                        WHERE user_id = ? AND LOWER(address) = LOWER(?)""",
                     (user_id, address),
@@ -312,13 +280,13 @@ class UserService:
                         )
 
                     if not method:
+                        method = "private_key"
+
+                    if method != "private_key":
                         return (
                             False,
-                            "Please specify a verification method: 'signature', 'transfer', or 'private_key'.",
+                            "Invalid verification method. Only private_key is supported.",
                         )
-
-                    if method not in ["signature", "transfer", "private_key"]:
-                        return False, "Invalid verification method."
 
                     success, challenge_msg = self.generate_verification_challenge(
                         user_id, address, method
@@ -339,7 +307,7 @@ class UserService:
                 cursor = conn.cursor()
 
                 cursor.execute(
-                    """SELECT method, challenge, nonce, amount, expires_at 
+                    """SELECT method, expires_at 
                        FROM pending_verifications 
                        WHERE user_id = ? AND LOWER(address) = LOWER(?)""",
                     (user_id, address),
@@ -355,36 +323,19 @@ class UserService:
                     if not method:
                         return False, "Verification method is missing."
 
-                # If the methods don't match, generate a new challenge
-                if method != pdata["method"]:
-                    info_message += f"Verification method mismatch. Expected: {pdata['method']}, got: {method}. Generating a new challenge with {method} method.\n\n"
-                    success, challenge_msg = self.generate_verification_challenge(
-                        user_id, address, method
+                # If the method isn't private_key, return error
+                if method != "private_key":
+                    return (
+                        False,
+                        "Invalid verification method. Only private_key is supported.",
                     )
-                    if not success:
-                        return False, challenge_msg
-
-                    info_message += challenge_msg
-                    return False, info_message
 
                 # If there's no verification data, return appropriate message
                 if not verification_data:
-                    if method == "signature":
-                        return False, "Please provide the signature:"
-                    elif method == "private_key":
-                        return False, "Please provide the private key:"
+                    return False, "Please provide the private key:"
 
-                # Perform the actual verification
-                if method == "signature":
-                    result, message = _verify_signature(
-                        address, pdata["challenge"], verification_data
-                    )
-                elif method == "transfer":
-                    result, message = _verify_transfer(address, pdata["amount"])
-                elif method == "private_key":
-                    result, message = _verify_private_key(address, verification_data)
-                else:
-                    return False, "Invalid verification method."
+                # Perform the verification with private key
+                result, message = _verify_private_key(address, verification_data)
 
                 # If verification succeeded, mark the wallet as verified
                 if result:
@@ -412,58 +363,6 @@ class UserService:
 
 
 # Reuse verification functions from original UserService
-def _verify_transfer(wallet_address: str, expected_lamports: int) -> Tuple[bool, str]:
-    """Verify a transfer from the wallet."""
-    try:
-        payload = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "getSignaturesForAddress",
-            "params": [wallet_address, {"limit": 10}],
-        }
-        response = requests.post(SOLANA_RPC_URL, json=payload)
-        if response.status_code != 200:
-            return False, "Failed to communicate with Solana RPC."
-        data = response.json()
-        if "error" in data:
-            return False, f"RPC error: {data['error']['message']}"
-        if not data.get("result"):
-            return False, "No recent transactions found."
-        for tx_info in data["result"]:
-            tx_sig = tx_info["signature"]
-            tx_payload = {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "getTransaction",
-                "params": [tx_sig, {"encoding": "json"}],
-            }
-            tx_response = requests.post(SOLANA_RPC_URL, json=tx_payload)
-            if tx_response.status_code != 200:
-                continue
-            tx_data = tx_response.json()
-            if tx_data.get("error") or not tx_data.get("result"):
-                continue
-            tx = tx_data["result"]
-            timestamp = tx.get("blockTime")
-            if (
-                not timestamp
-                or time.time() - timestamp > WALLET_VERIFICATION_EXPIRY_SECONDS
-            ):
-                continue
-            meta = tx.get("meta", {})
-            if "preBalances" in meta and "postBalances" in meta:
-                delta = meta["preBalances"][0] - meta["postBalances"][0]
-                if delta > 0 and abs(delta - expected_lamports) <= 5000:
-                    return True, "Transfer verification successful."
-        return (
-            False,
-            "Could not find a matching transfer. Please try again or use another verification method.",
-        )
-    except Exception as e:
-        logger.error(f"Error in transfer verification: {e}")
-        return False, "An error occurred during verification. Please try again later."
-
-
 def _verify_private_key(address: str, private_key: str) -> Tuple[bool, str]:
     """Verify wallet ownership via private key."""
     try:
@@ -497,42 +396,4 @@ def _verify_private_key(address: str, private_key: str) -> Tuple[bool, str]:
             return False, "Invalid private key format. Please check and try again."
     except Exception as e:
         logger.error(f"Error in private key verification: {e}")
-        return False, "An error occurred during verification. Please try again later."
-
-
-def _verify_signature(address: str, message: str, signature: str) -> Tuple[bool, str]:
-    """Verify a signature for a message."""
-    try:
-        if not message or not signature:
-            return False, "Missing message or signature."
-        if len(signature) < 32:
-            return False, "Invalid signature format."
-        payload = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "getAccountInfo",
-            "params": [address, {"encoding": "base64"}],
-        }
-        response = requests.post(SOLANA_RPC_URL, json=payload)
-        if response.status_code != 200:
-            return False, "Failed to communicate with Solana RPC."
-        data = response.json()
-        if "error" in data:
-            return False, f"RPC error: {data['error']['message']}"
-        verify_key = nacl.signing.VerifyKey(base58.b58decode(address))
-        try:
-            sig_bytes = base58.b58decode(signature)
-            verify_key.verify(message.encode(), sig_bytes)
-            return True, "Signature verification successful."
-        except nacl.exceptions.BadSignatureError:
-            return False, "Invalid signature for this message."
-        except Exception:
-            try:
-                sig_bytes = base64.b64decode(signature)
-                verify_key.verify(message.encode(), sig_bytes)
-                return True, "Signature verification successful."
-            except:
-                return False, "Invalid signature format or signature does not match."
-    except Exception as e:
-        logger.error(f"Error in signature verification: {e}")
         return False, "An error occurred during verification. Please try again later."

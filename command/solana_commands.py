@@ -12,7 +12,9 @@ async def cmd_sol_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
     if not context.args:
-        return await _reply(update, "Usage: /sol_balance [wallet address]")
+        return await _reply(
+            update, "Usage: /sol_balance [wallet address]", context=context
+        )
     address = context.args[0]
     result = await solana_service.get_sol_balance(address)
     text = (
@@ -20,14 +22,16 @@ async def cmd_sol_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if result
         else f"Unable to retrieve balance for {address}."
     )
-    await _reply(update, text)
+    await _reply(update, text, context=context)
 
 
 async def cmd_token_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
     if not context.args:
-        return await _reply(update, "Usage: /token_info [token address]")
+        return await _reply(
+            update, "Usage: /token_info [token address]", context=context
+        )
     address = context.args[0]
     result = await solana_service.get_token_info(address)
     if result:
@@ -37,14 +41,16 @@ async def cmd_token_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     else:
         text = f"Unable to retrieve token info for {address}."
-    await _reply(update, text)
+    await _reply(update, text, context=context)
 
 
 async def cmd_account_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
     if not context.args:
-        return await _reply(update, "Usage: /account_details [account address]")
+        return await _reply(
+            update, "Usage: /account_details [account address]", context=context
+        )
     address = context.args[0]
     result = await solana_service.get_account_details(address)
     if result:
@@ -54,7 +60,7 @@ async def cmd_account_details(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
     else:
         text = f"Unable to retrieve account details for {address}."
-    await _reply(update, text)
+    await _reply(update, text, context=context)
 
 
 async def cmd_latest_block(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -67,7 +73,7 @@ async def cmd_latest_block(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if result
         else "Unable to retrieve latest block information."
     )
-    await _reply(update, text)
+    await _reply(update, text, context=context)
 
 
 async def cmd_network_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -80,14 +86,14 @@ async def cmd_network_status(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if result
         else "Unable to retrieve network status."
     )
-    await _reply(update, text)
+    await _reply(update, text, context=context)
 
 
 async def cmd_transaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
     if not context.args:
-        return await _reply(update, "Usage: /transaction [signature]")
+        return await _reply(update, "Usage: /transaction [signature]", context=context)
     signature = context.args[0]
     result = await solana_service.get_transaction_details(signature)
     if result:
@@ -98,14 +104,16 @@ async def cmd_transaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     else:
         text = f"Unable to retrieve transaction details for {signature}."
-    await _reply(update, text)
+    await _reply(update, text, context=context)
 
 
 async def cmd_recent_transactions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
     if not context.args:
-        return await _reply(update, "Usage: /recent_tx [wallet address] [limit]")
+        return await _reply(
+            update, "Usage: /recent_tx [wallet address] [limit]", context=context
+        )
     address = context.args[0]
     limit = 5
     if len(context.args) > 1:
@@ -121,7 +129,7 @@ async def cmd_recent_transactions(update: Update, context: ContextTypes.DEFAULT_
             text += f"{i}. {status} {tx.get('signature', 'Unknown')[:12]}...\n   Slot: {tx.get('slot', 'Unknown')}\n"
     else:
         text = f"No recent transactions found for {address}."
-    await _reply(update, text)
+    await _reply(update, text, context=context)
 
 
 async def cmd_validators(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -145,14 +153,16 @@ async def cmd_validators(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     else:
         text = "Unable to retrieve validator information."
-    await _reply(update, text)
+    await _reply(update, text, context=context)
 
 
 async def cmd_token_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
     if not context.args:
-        return await _reply(update, "Usage: /token_accounts [wallet address]")
+        return await _reply(
+            update, "Usage: /token_accounts [wallet address]", context=context
+        )
     address = context.args[0]
     accounts = await solana_service.get_token_accounts(address)
     if accounts:
@@ -162,7 +172,7 @@ async def cmd_token_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
     else:
         text = f"No token accounts found for {address}."
-    await _reply(update, text)
+    await _reply(update, text, context=context)
 
 
 async def cmd_slot(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -174,4 +184,4 @@ async def cmd_slot(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if slot > 0
         else "Unable to retrieve current slot."
     )
-    await _reply(update, text)
+    await _reply(update, text, context=context)

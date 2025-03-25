@@ -13,11 +13,10 @@ from . import (
     cmd_token_accounts,
     cmd_slot,
     cmd_add_wallet,
-    cmd_verify_wallet,
     cmd_list_wallets,
     cmd_remove_wallet,
     cmd_my_balance,
-    get_command_list,
+    cmd_create_wallet,
 )
 
 logger = logging.getLogger(__name__)
@@ -66,12 +65,7 @@ class CommandProcessor:
             "slot": {"handler": cmd_slot, "requires": False},
             "add_wallet": {
                 "handler": cmd_add_wallet,
-                "prompt": "Enter wallet address and label:",
-                "requires": True,
-            },
-            "verify_wallet": {
-                "handler": cmd_verify_wallet,
-                "prompt": "Enter wallet address to verify:",
+                "prompt": "Enter wallet address, optional label and private key:",
                 "requires": True,
             },
             "my_wallets": {"handler": cmd_list_wallets, "requires": False},
@@ -81,6 +75,11 @@ class CommandProcessor:
                 "requires": True,
             },
             "my_balance": {"handler": cmd_my_balance, "requires": False},
+            "create_wallet": {
+                "handler": cmd_create_wallet,
+                "prompt": "Enter optional label for the new wallet:",
+                "requires": False,
+            },
         }
 
     def get(self, cmd: str):

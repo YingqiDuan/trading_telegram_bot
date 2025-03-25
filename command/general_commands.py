@@ -12,11 +12,11 @@ HELP_TEXT = (
     "• /transaction - Get transaction details\n"
     "• /recent_tx - View recent transactions\n\n"
     "🔐 <b>WALLET MANAGEMENT</b>\n"
-    "• /add_wallet - Register your Solana wallet\n"
-    "• /verify_wallet - Verify wallet ownership\n"
+    "• /add_wallet - Register and verify your Solana wallet\n"
     "• /my_wallets - List your registered wallets\n"
     "• /remove_wallet - Remove a wallet\n"
-    "• /my_balance - Check your default wallet balance\n\n"
+    "• /my_balance - Check your default wallet balance\n"
+    "• /create_wallet - Generate a new Solana wallet\n\n"
     "🌐 <b>NETWORK INFORMATION</b>\n"
     "• /latest_block - Get latest block\n"
     "• /network_status - Check network status\n"
@@ -41,8 +41,8 @@ def get_command_list():
         ("latest_block", "Get latest block info"),
         ("network_status", "Get network status"),
         ("slot", "Get current slot"),
-        ("add_wallet", "Register your wallet"),
-        ("verify_wallet", "Verify wallet ownership"),
+        ("add_wallet", "Register and verify your wallet"),
+        ("create_wallet", "Generate a new Solana wallet"),
         ("my_wallets", "List your wallets"),
         ("remove_wallet", "Remove a wallet"),
         ("my_balance", "Check your wallet balance"),

@@ -122,7 +122,3 @@ def verify_wallet(
     logger.warning("Legacy verify_wallet called - deprecated")
     service = SQLiteUserService()
     return service.verify_wallet(user_id, address, method, verification_data)
-
-
-# Note: The internal verification functions (_verify_transfer, _verify_private_key, _verify_signature)
-# are implemented in the SQLite service file and not duplicated here

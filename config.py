@@ -1,5 +1,8 @@
 TELEGRAM_BOT_TOKEN = "8087619840:AAGxmxJqn00vnt0uw_2JJFWtsiSKqq_I-no"
-SOLANA_RPC_URL = "https://api.mainnet-beta.solana.com"  # Solana mainnet RPC URL
+SOLANA_RPC_URL = "https://solana-mainnet.g.alchemy.com/v2/D7uf6FR6CE3ZJsl8cjux1wofeTUpy4O_"  # Solana mainnet RPC URL
+SOLANA_BACKUP_RPC_URL = (
+    "https://api.mainnet-beta.solana.com"  # Public RPC endpoint as backup
+)
 OPEN_AI_API_KEY = "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"
 
 # Rate limiting configuration

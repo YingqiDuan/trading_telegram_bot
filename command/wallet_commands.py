@@ -1,5 +1,5 @@
 import logging
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from services.user_service import UserService
 from services.solana_rpc_service import SolanaService
@@ -7,10 +7,23 @@ from services.user_service_sqlite import _verify_private_key
 from command.utils import _reply
 from nacl.signing import SigningKey
 import base58
+from telegram.ext import ConversationHandler
 
 logger = logging.getLogger(__name__)
 user_service = UserService()
 solana_service = SolanaService()
+
+# Conversation states for send_sol command
+SEND_SELECT_SOURCE = 1
+SEND_INPUT_DESTINATION = 2
+SEND_INPUT_AMOUNT = 3
+SEND_CONFIRM = 4
+SEND_INPUT_PRIVATE_KEY = 5
+
+# Callback data prefixes
+SEND_WALLET_PREFIX = "send_wallet_"
+SEND_CONFIRM_YES = "send_confirm_yes"
+SEND_CONFIRM_NO = "send_confirm_no"
 
 
 async def cmd_create_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -43,6 +56,9 @@ async def cmd_create_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
         verify_success, _ = user_service.verify_wallet(
             user_id, public_key, "private_key", private_key
         )
+
+        # Store the private key
+        user_service.set_wallet_private_key(user_id, public_key, private_key)
 
         await _reply(
             update,
@@ -148,6 +164,9 @@ async def cmd_add_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"⚠️ 警告：钱包已添加，但标记为已验证状态失败。您可以稍后再次验证。",
                 context=context,
             )
+        else:
+            # Store the private key
+            user_service.set_wallet_private_key(user_id, address, private_key)
 
         await _reply(
             update, f"✅ 私钥验证成功，钱包 {address} 已添加并验证！", context=context
@@ -216,3 +235,542 @@ async def cmd_my_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else f"Unable to retrieve balance for {default_wallet}."
     )
     await _reply(update, text, context=context)
+
+
+async def cmd_send_sol(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send SOL from one of user's wallets to another address"""
+    try:
+        effective_user = update.effective_user
+        if not effective_user:
+            logger.error("No effective user in cmd_send_sol")
+            return await _reply(
+                update,
+                "Error: Could not identify user.",
+                context=context,
+            )
+
+        user_id = str(effective_user.id)
+        logger.info(f"Starting cmd_send_sol for user {user_id}")
+        wallets = user_service.get_user_wallets(user_id)
+
+        if not wallets:
+            logger.info(f"User {user_id} has no registered wallets")
+            return await _reply(
+                update,
+                "You don't have any registered wallets. Use /add_wallet to add one first.",
+                context=context,
+            )
+
+        # Check if we're in the middle of a send operation
+        if context.user_data and "send_sol_state" in context.user_data:
+            state = context.user_data.get("send_sol_state")
+            logger.info(f"Continuing send operation in state {state}")
+
+            if state == SEND_INPUT_DESTINATION:
+                return await _handle_send_destination(update, context)
+            elif state == SEND_INPUT_AMOUNT:
+                return await _handle_send_amount(update, context)
+
+        # Start new send operation
+        keyboard = []
+        wallets_with_keys = []
+
+        # Create buttons for each wallet
+        for wallet in wallets:
+            address = wallet["address"]
+            logger.info(f"Checking wallet {address} for private key")
+
+            # Check if this wallet has a private key stored
+            private_key = user_service.get_wallet_private_key(user_id, address)
+            if not private_key:
+                logger.info(f"No private key found for wallet {address}")
+                continue
+
+            wallets_with_keys.append(wallet)
+            logger.info(f"Added wallet {address} to selection list")
+
+            label = wallet.get("label", "My Wallet")
+            # Get balance for each wallet
+            balance_info = await solana_service.get_sol_balance(address)
+            balance = balance_info.get("balance", 0)
+
+            display_text = f"{label}: {address[:6]}...{address[-4:]} ({balance} SOL)"
+            callback_data = f"{SEND_WALLET_PREFIX}{address}"
+
+            # Truncate callback_data if it's too long
+            if len(callback_data) > 64:
+                callback_data = f"{SEND_WALLET_PREFIX}{address[:30]}...{address[-30:]}"
+                logger.info(f"Truncated callback data to {len(callback_data)} chars")
+
+            keyboard.append(
+                [InlineKeyboardButton(display_text, callback_data=callback_data)]
+            )
+
+        if not wallets_with_keys:
+            logger.info(f"User {user_id} has no wallets with private keys")
+            return await _reply(
+                update,
+                "You don't have any wallets with stored private keys. Please use /add_wallet with a private key first.",
+                context=context,
+            )
+
+        logger.info(f"Found {len(wallets_with_keys)} wallets with private keys")
+        keyboard.append([InlineKeyboardButton("Cancel", callback_data="send_cancel")])
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await _reply(
+            update,
+            "Select a wallet to send SOL from:",
+            context=context,
+            reply_markup=reply_markup,
+        )
+
+        # Set state in user_data
+        if context.user_data is not None:
+            context.user_data["send_sol_state"] = SEND_SELECT_SOURCE
+            logger.info(f"Set state to SEND_SELECT_SOURCE")
+
+        return SEND_SELECT_SOURCE
+    except Exception as e:
+        logger.error(f"Error in cmd_send_sol: {e}")
+        await _reply(
+            update,
+            f"An error occurred while starting the send operation: {str(e)}",
+            context=context,
+        )
+        return ConversationHandler.END
+
+
+async def _handle_send_wallet_selection(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+):
+    """Handle wallet selection callback"""
+    query = update.callback_query
+    if not query:
+        logger.error("No callback query in _handle_send_wallet_selection")
+        return
+
+    try:
+        await query.answer()
+
+        if query.data == "send_cancel":
+            # Clean up user data
+            if context.user_data:
+                if "send_sol_state" in context.user_data:
+                    del context.user_data["send_sol_state"]
+                if "send_sol_source" in context.user_data:
+                    del context.user_data["send_sol_source"]
+
+            await query.edit_message_text("Transaction cancelled.")
+
+            # Try to return to the main menu if possible
+            try:
+                from telegram_bot.solana_bot import SELECT_OPTION
+
+                if hasattr(
+                    context.bot_data.get("bot_instance", None), "send_main_menu"
+                ):
+                    await context.bot_data["bot_instance"].send_main_menu(
+                        update, context
+                    )
+                    return SELECT_OPTION
+            except Exception as e:
+                logger.error(f"Error returning to main menu: {e}")
+
+            # Just return to end the conversation if we can't go to main menu
+            return ConversationHandler.END
+
+        logger.info(f"Wallet selection callback data: {query.data}")
+        if not query.data.startswith(SEND_WALLET_PREFIX):
+            logger.error(f"Invalid callback data: {query.data}")
+            return
+
+        # Extract wallet address from callback data
+        address = query.data[len(SEND_WALLET_PREFIX) :]
+        logger.info(f"Extracted address: {address}")
+
+        # Handle truncated addresses
+        if "..." in address:
+            logger.info("Handling truncated address")
+            # Get the full list of user wallets
+            user_id = str(update.effective_user.id) if update.effective_user else None
+            if not user_id:
+                await query.edit_message_text("Error: Could not identify user.")
+                return
+
+            wallets = user_service.get_user_wallets(user_id)
+            found = False
+
+            # Find the matching wallet by checking if the truncated parts match
+            prefix, suffix = address.split("...")
+            for wallet in wallets:
+                full_address = wallet["address"]
+                if full_address.startswith(prefix) and full_address.endswith(suffix):
+                    address = full_address
+                    found = True
+                    logger.info(f"Found matching wallet: {address}")
+                    break
+
+            if not found:
+                await query.edit_message_text("Error: Could not find selected wallet.")
+                return
+
+        # Verify the wallet has a private key
+        user_id = str(update.effective_user.id) if update.effective_user else None
+        if not user_id:
+            await query.edit_message_text("Error: Could not identify user.")
+            return
+
+        private_key = user_service.get_wallet_private_key(user_id, address)
+        if not private_key:
+            await query.edit_message_text(
+                "Error: No private key found for this wallet. Please add a private key first."
+            )
+            return ConversationHandler.END
+
+        # Store selected wallet in user data
+        if context.user_data is not None:
+            context.user_data["send_sol_source"] = address
+            context.user_data["send_sol_state"] = SEND_INPUT_DESTINATION
+
+        # Get balance for display
+        balance_info = await solana_service.get_sol_balance(address)
+        balance = balance_info.get("balance", 0)
+
+        await query.edit_message_text(
+            f"Selected wallet: {address[:8]}...{address[-6:]} (Balance: {balance} SOL)\n\n"
+            f"Please enter the destination wallet address:"
+        )
+
+        return SEND_INPUT_DESTINATION
+    except Exception as e:
+        logger.error(f"Error in _handle_send_wallet_selection: {e}")
+        try:
+            await query.edit_message_text(f"An error occurred: {str(e)}")
+        except:
+            pass
+        return ConversationHandler.END
+
+
+async def _handle_send_destination(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle destination address input"""
+    try:
+        logger.info("Processing destination address input")
+        if not update.message or not update.message.text:
+            logger.error("No message text in _handle_send_destination")
+            return SEND_INPUT_DESTINATION
+
+        destination = update.message.text.strip()
+        logger.info(f"Received destination address: {destination}")
+
+        # Validate destination address format
+        if len(destination) not in (43, 44):
+            logger.warning(f"Invalid address format: {len(destination)} characters")
+            await update.message.reply_text(
+                "Invalid wallet address format. Please enter a valid Solana address."
+            )
+            return SEND_INPUT_DESTINATION
+
+        # Store destination in user data
+        if context.user_data is not None:
+            context.user_data["send_sol_destination"] = destination
+            context.user_data["send_sol_state"] = SEND_INPUT_AMOUNT
+            logger.info(
+                f"Updated state to SEND_INPUT_AMOUNT with destination {destination}"
+            )
+
+        # Display source and destination for confirmation
+        source = (
+            context.user_data.get("send_sol_source", "Unknown")
+            if context.user_data
+            else "Unknown"
+        )
+        logger.info(f"Confirming source {source} and destination {destination}")
+
+        await update.message.reply_text(
+            f"From: {source[:8]}...{source[-6:]}\n"
+            f"To: {destination[:8]}...{destination[-6:]}\n\n"
+            f"Please enter the amount of SOL to send:"
+        )
+
+        return SEND_INPUT_AMOUNT
+    except Exception as e:
+        logger.error(f"Error in _handle_send_destination: {e}")
+        await update.message.reply_text(f"An error occurred: {str(e)}")
+        return SEND_INPUT_DESTINATION
+
+
+async def _handle_send_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle amount input"""
+    try:
+        logger.info("Processing amount input")
+        if not update.message or not update.message.text:
+            logger.error("No message text in _handle_send_amount")
+            return SEND_INPUT_AMOUNT
+
+        amount_text = update.message.text.strip()
+        logger.info(f"Received amount: {amount_text}")
+
+        # Validate amount
+        try:
+            amount = float(amount_text)
+            if amount <= 0:
+                logger.warning(f"Invalid amount: {amount} (must be > 0)")
+                await update.message.reply_text("Amount must be greater than 0.")
+                return SEND_INPUT_AMOUNT
+        except ValueError:
+            logger.warning(f"Could not parse amount: {amount_text}")
+            await update.message.reply_text("Please enter a valid number.")
+            return SEND_INPUT_AMOUNT
+
+        # Check if user has enough balance
+        source = (
+            context.user_data.get("send_sol_source", "") if context.user_data else ""
+        )
+        if source:
+            logger.info(f"Checking balance for source wallet: {source}")
+            balance_info = await solana_service.get_sol_balance(source)
+            balance = balance_info.get("balance", 0)
+            logger.info(f"Source wallet balance: {balance} SOL")
+
+            if amount > balance:
+                logger.warning(
+                    f"Insufficient balance: {balance} SOL, tried to send {amount} SOL"
+                )
+                await update.message.reply_text(
+                    f"Insufficient balance. You have {balance} SOL available."
+                )
+                return SEND_INPUT_AMOUNT
+
+        # Store amount in user data
+        if context.user_data is not None:
+            context.user_data["send_sol_amount"] = amount
+            context.user_data["send_sol_state"] = SEND_CONFIRM
+            logger.info(f"Updated state to SEND_CONFIRM with amount {amount}")
+
+        # Display transaction summary for confirmation
+        source = (
+            context.user_data.get("send_sol_source", "Unknown")
+            if context.user_data
+            else "Unknown"
+        )
+        destination = (
+            context.user_data.get("send_sol_destination", "Unknown")
+            if context.user_data
+            else "Unknown"
+        )
+        logger.info(
+            f"Preparing confirmation for transfer {amount} SOL from {source} to {destination}"
+        )
+
+        keyboard = [
+            [
+                InlineKeyboardButton("Confirm", callback_data=SEND_CONFIRM_YES),
+                InlineKeyboardButton("Cancel", callback_data=SEND_CONFIRM_NO),
+            ]
+        ]
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            f"Transaction Summary:\n\n"
+            f"From: {source[:8]}...{source[-6:]}\n"
+            f"To: {destination[:8]}...{destination[-6:]}\n"
+            f"Amount: {amount} SOL\n\n"
+            f"Please confirm this transaction:",
+            reply_markup=reply_markup,
+        )
+
+        return SEND_CONFIRM
+    except Exception as e:
+        logger.error(f"Error in _handle_send_amount: {e}")
+        await update.message.reply_text(f"An error occurred: {str(e)}")
+        return SEND_INPUT_AMOUNT
+
+
+async def _handle_send_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle transaction confirmation"""
+    try:
+        logger.info("Processing transaction confirmation")
+        query = update.callback_query
+        if not query:
+            logger.error("No callback query in _handle_send_confirmation")
+            return ConversationHandler.END
+
+        await query.answer()
+        logger.info(f"Confirmation response: {query.data}")
+
+        if query.data == SEND_CONFIRM_NO:
+            logger.info("User cancelled the transaction")
+            # Clean up user data
+            if context.user_data:
+                if "send_sol_state" in context.user_data:
+                    del context.user_data["send_sol_state"]
+                if "send_sol_source" in context.user_data:
+                    del context.user_data["send_sol_source"]
+                if "send_sol_destination" in context.user_data:
+                    del context.user_data["send_sol_destination"]
+                if "send_sol_amount" in context.user_data:
+                    del context.user_data["send_sol_amount"]
+
+            await query.edit_message_text("Transaction cancelled.")
+
+            # Try to return to the main menu if possible
+            try:
+                from telegram_bot.solana_bot import SELECT_OPTION
+
+                if hasattr(
+                    context.bot_data.get("bot_instance", None), "send_main_menu"
+                ):
+                    await context.bot_data["bot_instance"].send_main_menu(
+                        update, context
+                    )
+                    return SELECT_OPTION
+            except Exception as e:
+                logger.error(f"Error returning to main menu: {e}")
+
+            # Just return to end the conversation if we can't go to main menu
+            return ConversationHandler.END
+
+        if query.data == SEND_CONFIRM_YES and context.user_data:
+            logger.info("User confirmed the transaction")
+            # Get transaction parameters
+            source = context.user_data.get("send_sol_source", "")
+            destination = context.user_data.get("send_sol_destination", "")
+            amount = context.user_data.get("send_sol_amount", 0)
+
+            logger.info(
+                f"Preparing to send {amount} SOL from {source} to {destination}"
+            )
+
+            # Get the user ID
+            user_id = str(update.effective_user.id) if update.effective_user else None
+            if not user_id:
+                logger.error("Could not identify user ID")
+                await query.edit_message_text("Error: Could not identify user.")
+                return ConversationHandler.END
+
+            # Retrieve private key from database
+            private_key = user_service.get_wallet_private_key(user_id, source)
+            logger.info(
+                f"Retrieved private key for wallet {source}: {'Found' if private_key else 'Not found'}"
+            )
+
+            if not private_key:
+                logger.error(f"No private key found for wallet {source}")
+                await query.edit_message_text(
+                    "❌ Could not find the private key for this wallet. "
+                    "Please use /add_wallet to re-verify this wallet with its private key."
+                )
+
+                # Clean up user data
+                if "send_sol_state" in context.user_data:
+                    del context.user_data["send_sol_state"]
+                if "send_sol_source" in context.user_data:
+                    del context.user_data["send_sol_source"]
+                if "send_sol_destination" in context.user_data:
+                    del context.user_data["send_sol_destination"]
+                if "send_sol_amount" in context.user_data:
+                    del context.user_data["send_sol_amount"]
+
+                return ConversationHandler.END
+
+            # Show processing message
+            await query.edit_message_text("Processing transaction...")
+
+            # Execute the transaction
+            logger.info(
+                f"Executing transaction: {amount} SOL from {source} to {destination}"
+            )
+            result = await solana_service.send_sol(
+                source, destination, amount, private_key
+            )
+            logger.info(f"Transaction result: {result}")
+
+            # Clean up user data
+            if "send_sol_state" in context.user_data:
+                del context.user_data["send_sol_state"]
+            if "send_sol_source" in context.user_data:
+                del context.user_data["send_sol_source"]
+            if "send_sol_destination" in context.user_data:
+                del context.user_data["send_sol_destination"]
+            if "send_sol_amount" in context.user_data:
+                del context.user_data["send_sol_amount"]
+
+            # Display result
+            if result.get("success", False):
+                logger.info(
+                    f"Transaction successful: {result.get('signature', 'Unknown')}"
+                )
+                success_text = (
+                    f"✅ Transaction successful!\n\n"
+                    f"Amount: {amount} SOL\n"
+                    f"From: {source[:8]}...{source[-6:]}\n"
+                    f"To: {destination[:8]}...{destination[-6:]}\n"
+                    f"Transaction signature: {result.get('signature', 'Unknown')}"
+                )
+                await query.edit_message_text(success_text)
+            else:
+                error_msg = result.get("error", "Unknown error")
+                details = result.get("details", "")
+                logger.error(f"Transaction failed: {error_msg} - Details: {details}")
+
+                # Create a user-friendly error message based on the error type
+                if "rate limit" in error_msg.lower():
+                    error_text = (
+                        f"❌ Transaction failed: Rate limit exceeded\n\n"
+                        f"The Solana network is busy. Please wait a few seconds and try again."
+                    )
+                elif (
+                    "insufficient funds" in error_msg.lower()
+                    or "insufficient funds" in details.lower()
+                ):
+                    error_text = (
+                        f"❌ Transaction failed: Insufficient funds\n\n"
+                        f"Your wallet does not have enough SOL to complete this transaction.\n"
+                        f"Remember to account for transaction fees."
+                    )
+                elif (
+                    "signature verification" in error_msg.lower()
+                    or "signature verification" in details.lower()
+                ):
+                    error_text = (
+                        f"❌ Transaction failed: Signature verification failed\n\n"
+                        f"The stored private key may not match this wallet address.\n"
+                        f"Please use /add_wallet to re-verify your wallet with the correct private key."
+                    )
+                else:
+                    error_text = (
+                        f"❌ Transaction failed: {error_msg}\n\n"
+                        f"Please try again or check your wallet details."
+                    )
+
+                await query.edit_message_text(error_text)
+
+            # Try to return to the main menu if possible
+            try:
+                from telegram_bot.solana_bot import SELECT_OPTION
+
+                if hasattr(
+                    context.bot_data.get("bot_instance", None), "send_main_menu"
+                ):
+                    await context.bot_data["bot_instance"].send_main_menu(
+                        update, context
+                    )
+                    return SELECT_OPTION
+            except Exception as e:
+                logger.error(f"Error returning to main menu: {e}")
+
+            return ConversationHandler.END
+
+        # If we get here, something went wrong with the callback data
+        logger.warning(f"Unexpected callback data: {query.data}")
+        return ConversationHandler.END
+    except Exception as e:
+        logger.error(f"Error in _handle_send_confirmation: {e}")
+        try:
+            await query.edit_message_text(f"An error occurred: {str(e)}")
+        except:
+            pass
+        return ConversationHandler.END

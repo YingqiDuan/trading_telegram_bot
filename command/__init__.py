@@ -16,6 +16,7 @@ from .wallet_commands import (
     cmd_remove_wallet,
     cmd_my_balance,
     cmd_create_wallet,
+    cmd_send_sol,
 )
 from .general_commands import (
     get_command_list,

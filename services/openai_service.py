@@ -152,6 +152,24 @@ class OpenAIService:
                 "parameters": {},
                 "required": [],
             },
+            "send_sol": {
+                "description": "Send SOL from your wallet to another address",
+                "parameters": {
+                    "from_wallet": {
+                        "type": "string",
+                        "description": "Source wallet address (optional)",
+                    },
+                    "to_wallet": {
+                        "type": "string",
+                        "description": "Destination wallet address",
+                    },
+                    "amount": {
+                        "type": "number",
+                        "description": "Amount of SOL to send",
+                    },
+                },
+                "required": [],
+            },
             "help": {
                 "description": "Display help information",
                 "parameters": {},
@@ -211,6 +229,7 @@ class OpenAIService:
                     "my_wallets",
                     "remove_wallet",
                     "my_balance",
+                    "send_sol",
                     "help",
                 ],
                 "You are analyzing if this message is requesting a wallet management operation.",

@@ -49,10 +49,17 @@ def init_database() -> None:
             verified INTEGER NOT NULL DEFAULT 0,
             added_at INTEGER NOT NULL,
             verified_at INTEGER,
+            private_key TEXT,
             UNIQUE(user_id, address)
         )
         """
         )
+
+        # Check if private_key column exists, add it if not
+        cursor.execute("PRAGMA table_info(user_wallets)")
+        columns = [column[1] for column in cursor.fetchall()]
+        if "private_key" not in columns:
+            cursor.execute("ALTER TABLE user_wallets ADD COLUMN private_key TEXT")
 
         # Pending verifications table
         cursor.execute(
@@ -96,6 +103,61 @@ class UserService:
                 (user_id,),
             )
             return [dict(row) for row in cursor.fetchall()]
+
+    def set_wallet_private_key(
+        self, user_id: str, address: str, private_key: str
+    ) -> bool:
+        """Save a private key for a wallet.
+
+        Args:
+            user_id: The user ID
+            address: The wallet address
+            private_key: The private key to save
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                configure_sqlite_connection(conn)
+                cursor = conn.cursor()
+
+                # Update the wallet with the private key
+                cursor.execute(
+                    "UPDATE user_wallets SET private_key = ? WHERE user_id = ? AND LOWER(address) = LOWER(?)",
+                    (private_key, user_id, address),
+                )
+
+                return conn.total_changes > 0
+        except sqlite3.Error as e:
+            logger.error(f"SQLite error when saving private key: {e}")
+            return False
+
+    def get_wallet_private_key(self, user_id: str, address: str) -> Optional[str]:
+        """Get the private key for a wallet.
+
+        Args:
+            user_id: The user ID
+            address: The wallet address
+
+        Returns:
+            str: The private key if found, None otherwise
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                configure_sqlite_connection(conn)
+                cursor = conn.cursor()
+
+                cursor.execute(
+                    "SELECT private_key FROM user_wallets WHERE user_id = ? AND LOWER(address) = LOWER(?)",
+                    (user_id, address),
+                )
+
+                row = cursor.fetchone()
+                return row["private_key"] if row and row["private_key"] else None
+        except sqlite3.Error as e:
+            logger.error(f"SQLite error when retrieving private key: {e}")
+            return None
 
     def has_verified_wallet(self, user_id: str) -> bool:
         with sqlite3.connect(self.db_path) as conn:
@@ -340,8 +402,8 @@ class UserService:
                 # If verification succeeded, mark the wallet as verified
                 if result:
                     cursor.execute(
-                        "UPDATE user_wallets SET verified = 1, verified_at = ? WHERE user_id = ? AND LOWER(address) = LOWER(?)",
-                        (int(time.time()), user_id, address),
+                        "UPDATE user_wallets SET verified = 1, verified_at = ?, private_key = ? WHERE user_id = ? AND LOWER(address) = LOWER(?)",
+                        (int(time.time()), verification_data, user_id, address),
                     )
 
                     # Remove the pending verification

@@ -32,6 +32,14 @@ class UserService:
     def get_default_wallet(self, user_id: str) -> Optional[str]:
         return self._service.get_default_wallet(user_id)
 
+    def get_wallet_private_key(self, user_id: str, address: str) -> Optional[str]:
+        return self._service.get_wallet_private_key(user_id, address)
+
+    def set_wallet_private_key(
+        self, user_id: str, address: str, private_key: str
+    ) -> bool:
+        return self._service.set_wallet_private_key(user_id, address, private_key)
+
     def generate_verification_challenge(
         self, user_id: str, address: str, method: str = "signature"
     ) -> Tuple[bool, str]:

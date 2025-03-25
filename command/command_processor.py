@@ -17,6 +17,7 @@ from . import (
     cmd_remove_wallet,
     cmd_my_balance,
     cmd_create_wallet,
+    cmd_send_sol,
 )
 
 logger = logging.getLogger(__name__)
@@ -78,6 +79,11 @@ class CommandProcessor:
             "create_wallet": {
                 "handler": cmd_create_wallet,
                 "prompt": "Enter optional label for the new wallet:",
+                "requires": False,
+            },
+            "send_sol": {
+                "handler": cmd_send_sol,
+                "prompt": "Follow the steps to send SOL from your wallet:",
                 "requires": False,
             },
         }

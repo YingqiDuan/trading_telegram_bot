@@ -26,6 +26,20 @@ from command import (
     CommandProcessor,
     HELP_TEXT,
 )
+from command.wallet_commands import (
+    _handle_send_wallet_selection,
+    _handle_send_confirmation,
+    _handle_send_destination,
+    _handle_send_amount,
+    SEND_WALLET_PREFIX,
+    SEND_CONFIRM_YES,
+    SEND_CONFIRM_NO,
+    SEND_SELECT_SOURCE,
+    SEND_INPUT_DESTINATION,
+    SEND_INPUT_AMOUNT,
+    SEND_CONFIRM,
+    cmd_send_sol,
+)
 
 logger = logging.getLogger(__name__)
 SELECT_OPTION, WAITING_PARAM = 0, 1
@@ -137,7 +151,16 @@ class SolanaTelegramBot:
         if update.message:
             await update.message.reply_text("Cancelled.")
             if context.user_data is not None:
+                # Clean up any pending command
                 context.user_data.pop("pending", None)
+
+                # Clean up any send_sol state
+                if "send_sol_state" in context.user_data:
+                    context.user_data.pop("send_sol_state", None)
+                    context.user_data.pop("send_sol_source", None)
+                    context.user_data.pop("send_sol_destination", None)
+                    context.user_data.pop("send_sol_amount", None)
+
         await self.send_main_menu(update, context)
         return SELECT_OPTION
 
@@ -207,7 +230,10 @@ class SolanaTelegramBot:
             [
                 InlineKeyboardButton(
                     "My Balance 💵", callback_data=f"{CMD_PREFIX}my_balance"
-                )
+                ),
+                InlineKeyboardButton(
+                    "Send SOL 💸", callback_data=f"{CMD_PREFIX}send_sol"
+                ),
             ],
             [InlineKeyboardButton("« Back to Main Menu", callback_data=MAIN_MENU_CB)],
         ]
@@ -250,8 +276,71 @@ class SolanaTelegramBot:
             CommandHandler("help", self.help),
         ]
         for cmd in self.processor.handlers:
-            entry_points.append(CommandHandler(cmd, self.param_handler))
+            if cmd != "send_sol":  # Skip send_sol as we'll handle it separately
+                entry_points.append(CommandHandler(cmd, self.param_handler))
 
+        # Import send_sol command states
+        from command.wallet_commands import (
+            SEND_SELECT_SOURCE,
+            SEND_INPUT_DESTINATION,
+            SEND_INPUT_AMOUNT,
+            SEND_CONFIRM,
+            cmd_send_sol,
+            _handle_send_destination,
+            _handle_send_amount,
+        )
+
+        # Create a separate conversation handler for send_sol command
+        send_sol_handler = ConversationHandler(
+            entry_points=[
+                CommandHandler("send_sol", cmd_send_sol),
+                CallbackQueryHandler(
+                    self.handle_command_button, pattern=f"^{CMD_PREFIX}send_sol$"
+                ),
+            ],
+            states={
+                SEND_SELECT_SOURCE: [
+                    CallbackQueryHandler(
+                        _handle_send_wallet_selection, pattern=f"^{SEND_WALLET_PREFIX}"
+                    ),
+                    CallbackQueryHandler(
+                        _handle_send_wallet_selection, pattern="^send_cancel$"
+                    ),
+                ],
+                SEND_INPUT_DESTINATION: [
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND, _handle_send_destination
+                    )
+                ],
+                SEND_INPUT_AMOUNT: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, _handle_send_amount)
+                ],
+                SEND_CONFIRM: [
+                    CallbackQueryHandler(
+                        _handle_send_confirmation,
+                        pattern=f"^{SEND_CONFIRM_YES}$|^{SEND_CONFIRM_NO}$",
+                    ),
+                ],
+                SELECT_OPTION: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.input_handler)
+                ],
+            },
+            fallbacks=[
+                CommandHandler("cancel", self.cancel),
+                CommandHandler("start", self.start),
+                CommandHandler("help", self.help),
+            ],
+            name="send_sol_conv",
+            persistent=False,
+            per_message=False,
+            per_chat=True,
+            allow_reentry=True,
+        )
+
+        # Add send_sol handler first to give it priority
+        self.app.add_handler(send_sol_handler)
+
+        # Main conversation handler
         conv_handler = ConversationHandler(
             entry_points=entry_points,
             states={
@@ -460,6 +549,26 @@ class SolanaTelegramBot:
             return SELECT_OPTION
         await query.answer()
         cmd = query.data[len(CMD_PREFIX) :]
+
+        # Special handling for send_sol command from menu button
+        if cmd == "send_sol":
+            # This will be handled by the ConversationHandler,
+            # we just remove the keyboard and let cmd_send_sol handle the rest
+            try:
+                await query.edit_message_reply_markup(reply_markup=None)
+            except Exception:
+                pass
+
+            try:
+                await query.edit_message_text("Starting send SOL operation...")
+            except Exception:
+                pass
+
+            # Return to the ConversationHandler
+            from command.wallet_commands import cmd_send_sol
+
+            return await cmd_send_sol(update, context)
+
         if not await self.check_rate(update, cmd):
             return SELECT_OPTION
         if self.processor.requires_param(cmd):

@@ -16,7 +16,8 @@ HELP_TEXT = (
     "• /my_wallets - List your registered wallets\n"
     "• /remove_wallet - Remove a wallet\n"
     "• /my_balance - Check your default wallet balance\n"
-    "• /create_wallet - Generate a new Solana wallet\n\n"
+    "• /create_wallet - Generate a new Solana wallet\n"
+    "• /send_sol - Send SOL from your wallet to another address\n\n"
     "🌐 <b>NETWORK INFORMATION</b>\n"
     "• /latest_block - Get latest block\n"
     "• /network_status - Check network status\n"
@@ -46,6 +47,7 @@ def get_command_list():
         ("my_wallets", "List your wallets"),
         ("remove_wallet", "Remove a wallet"),
         ("my_balance", "Check your wallet balance"),
+        ("send_sol", "Send SOL to another address"),
         ("help", "Show help info"),
         ("cancel", "Cancel current operation"),
     ]

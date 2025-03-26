@@ -1,7 +1,7 @@
 import logging
 from config import SOLANA_RPC_URL, SOLANA_BACKUP_RPC_URL
 
-# solana / solders 相关依赖
+# solana / solders related dependencies
 from solana.rpc.api import Client as SolanaRpcClient
 from solana.rpc.types import TokenAccountOpts
 from solders.pubkey import Pubkey
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class SolanaService:
-    """Solana区块链服务，支持RPC节点切换"""
+    """Solana blockchain service, supports RPC node switching"""
 
     def __init__(self):
         self.primary_client = SolanaRpcClient(SOLANA_RPC_URL)
@@ -24,17 +24,17 @@ class SolanaService:
         self.current_client = self.primary_client
 
     def _switch_to_backup(self):
-        """切换到备用RPC节点"""
+        """Switch to backup RPC node"""
         logger.info("Switching to backup RPC node...")
         self.current_client = self.backup_client
 
     def _switch_to_primary(self):
-        """切换回主RPC节点"""
+        """Switch back to primary RPC node"""
         logger.info("Switching back to primary RPC node...")
         self.current_client = self.primary_client
 
     async def get_sol_balance(self, wallet_address: str) -> dict:
-        """获取SOL余额"""
+        """Get SOL balance"""
         try:
             pubkey = Pubkey.from_string(wallet_address)
             response = self.current_client.get_balance(pubkey)
@@ -224,6 +224,17 @@ class SolanaService:
 
                 # If both attempts fail, return error
                 logger.error("Transaction failed after trying both RPC nodes")
+
+                # Check if this is an "insufficient funds for rent" error
+                result_str = str(result)
+                if "insufficient funds for rent" in result_str.lower():
+                    logger.error("Error detected: Insufficient funds for rent")
+                    return {
+                        "success": False,
+                        "error": "Insufficient funds for rent",
+                        "details": "Transaction simulation failed: Transaction results in an account with insufficient funds for rent. Try sending a smaller amount.",
+                    }
+
                 return {
                     "success": False,
                     "error": "Transaction failed after trying both RPC nodes",
@@ -235,12 +246,50 @@ class SolanaService:
                 logger.error(f"Error in send attempt: {error_str}")
                 logger.error(f"Full error details: {e}")
 
-                # If first attempt fails with rate limit or send failed, switch node and retry
-                if (
-                    "429" in error_str
-                    or "Too Many Requests" in error_str
-                    or "Send failed" in error_str
+                # Check error type, looking for any signs of 429
+                should_switch_node = False
+
+                # If error message is empty but could be an HTTP error
+                if not error_str:
+                    logger.info(
+                        "Empty error string detected, checking if it's a rate limit error"
+                    )
+                    # Try to check HTTP status code directly from exception object
+                    status_code = None
+                    if hasattr(e, "response") and hasattr(e.response, "status_code"):
+                        status_code = e.response.status_code
+                        logger.info(f"Found HTTP status code: {status_code}")
+
+                    # Handle 429 error
+                    if status_code == 429:
+                        error_str = "Rate limit exceeded (HTTP 429). Too many requests."
+                        logger.error(f"Rate limit error detected: {error_str}")
+                        should_switch_node = True
+                    else:
+                        error_str = (
+                            "Unknown error occurred during transaction submission"
+                        )
+                        logger.error(f"Empty error string, using default: {error_str}")
+                        # To be safe, also switch node to try
+                        should_switch_node = True
+                # Check for common error markers
+                elif (
+                    "429" in str(e)
+                    or "Too Many Requests" in str(e)
+                    or "Send failed" in str(e)
                 ):
+                    should_switch_node = True
+                # Directly check response object
+                elif (
+                    hasattr(e, "response")
+                    and getattr(e.response, "status_code", None) == 429
+                ):
+                    error_str = "Rate limit exceeded (HTTP 429). Too many requests."
+                    logger.error(f"Rate limit error detected: {error_str}")
+                    should_switch_node = True
+
+                # Based on the result, decide whether to switch nodes
+                if should_switch_node:
                     logger.info(
                         "First attempt failed, switching RPC node and retrying..."
                     )
@@ -287,6 +336,17 @@ class SolanaService:
                             }
 
                         logger.error("Transaction failed after trying both RPC nodes")
+
+                        # Check if this is an "insufficient funds for rent" error
+                        result_str = str(result)
+                        if "insufficient funds for rent" in result_str.lower():
+                            logger.error("Error detected: Insufficient funds for rent")
+                            return {
+                                "success": False,
+                                "error": "Insufficient funds for rent",
+                                "details": "Transaction simulation failed: Transaction results in an account with insufficient funds for rent. Try sending a smaller amount.",
+                            }
+
                         return {
                             "success": False,
                             "error": "Transaction failed after trying both RPC nodes",
@@ -294,11 +354,45 @@ class SolanaService:
                         }
 
                     except Exception as e2:
-                        logger.error(f"Error in second attempt: {e2}")
+                        e2_str = str(e2)
+                        logger.error(f"Error in second attempt: {e2_str}")
+
+                        # Handle empty error message in second attempt
+                        if not e2_str:
+                            logger.info(
+                                "Empty error string in second attempt, checking error type"
+                            )
+                            # Try to check HTTP status code directly from exception object
+                            if hasattr(e2, "response") and hasattr(
+                                e2.response, "status_code"
+                            ):
+                                status_code = e2.response.status_code
+                                logger.info(
+                                    f"Second attempt HTTP status code: {status_code}"
+                                )
+                                if status_code == 429:
+                                    e2_str = "Rate limit exceeded (HTTP 429) in second attempt"
+                                else:
+                                    e2_str = (
+                                        f"HTTP error {status_code} in second attempt"
+                                    )
+                            else:
+                                e2_str = "Unknown error in second attempt"
+                        elif (
+                            hasattr(e2, "response")
+                            and getattr(e2.response, "status_code", None) == 429
+                        ):
+                            e2_str = "Rate limit exceeded (HTTP 429) in second attempt"
+                        # Check if it's a rent error
+                        elif "insufficient funds for rent" in e2_str.lower():
+                            e2_str = "Insufficient funds for rent. Solana requires accounts to maintain a minimum balance."
+
+                        logger.error(f"Final error details: {e2_str}")
+
                         return {
                             "success": False,
                             "error": "Transaction failed after trying both RPC nodes",
-                            "details": f"First error: {error_str}, Second error: {str(e2)}",
+                            "details": f"First error: {error_str}, Second error: {e2_str}",
                         }
                 else:
                     # For other errors, return immediately
@@ -315,7 +409,7 @@ class SolanaService:
             return {"success": False, "error": str(e), "details": str(e)}
 
     async def get_token_info(self, token_address: str) -> dict:
-        """获取代币信息"""
+        """Get token information"""
         try:
             pubkey = Pubkey.from_string(token_address)
             response = self.current_client.get_token_supply(pubkey)
@@ -329,7 +423,7 @@ class SolanaService:
             return {}
 
     async def get_account_details(self, account_address: str) -> dict:
-        """获取账户详情"""
+        """Get account details"""
         try:
             pubkey = Pubkey.from_string(account_address)
             response = self.current_client.get_account_info(pubkey)
@@ -347,7 +441,7 @@ class SolanaService:
             return {}
 
     async def get_latest_block(self) -> dict:
-        """获取最新区块"""
+        """Get latest block"""
         try:
             response = self.current_client.get_latest_blockhash()
             return {
@@ -359,7 +453,7 @@ class SolanaService:
             return {}
 
     async def get_network_status(self) -> dict:
-        """获取网络状态"""
+        """Get network status"""
         try:
             response = self.current_client.get_version()
             return {
@@ -371,7 +465,7 @@ class SolanaService:
             return {}
 
     async def get_transaction_details(self, signature: str) -> dict:
-        """获取交易详情"""
+        """Get transaction details"""
         try:
             sig = Signature.from_string(signature)
             response = self.current_client.get_transaction(sig)
@@ -390,7 +484,7 @@ class SolanaService:
     async def get_recent_transactions(
         self, wallet_address: str, limit: int = 5
     ) -> list:
-        """获取最近交易"""
+        """Get recent transactions"""
         try:
             pubkey = Pubkey.from_string(wallet_address)
             response = self.current_client.get_signatures_for_address(
@@ -411,7 +505,7 @@ class SolanaService:
             return []
 
     async def get_validators(self, limit: int = 5) -> list:
-        """获取验证者信息"""
+        """Get validator information"""
         try:
             response = self.current_client.get_vote_accounts()
             validators = response.value.current
@@ -431,7 +525,7 @@ class SolanaService:
             return []
 
     async def get_token_accounts(self, wallet_address: str) -> list:
-        """获取代币账户"""
+        """Get token accounts"""
         try:
             pubkey = Pubkey.from_string(wallet_address)
             token_program_id = Pubkey.from_string(
@@ -454,7 +548,7 @@ class SolanaService:
             return []
 
     async def get_slot(self) -> int:
-        """获取当前槽位"""
+        """Get current slot"""
         try:
             response = self.current_client.get_slot()
             return response.value

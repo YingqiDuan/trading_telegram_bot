@@ -129,6 +129,38 @@ class SolanaTelegramBot:
                 reply_markup=InlineKeyboardMarkup(keyboard),
             )
 
+    async def send_main_menu_as_new_message(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+        """发送主菜单作为新消息，而不替换现有消息"""
+        keyboard = [
+            [
+                InlineKeyboardButton("Solana 🔍", callback_data=SOLANA_TOPIC_CB),
+                InlineKeyboardButton("Wallet 🔐", callback_data=WALLET_TOPIC_CB),
+            ],
+            [InlineKeyboardButton("Help ❓", callback_data=HELP_TOPIC_CB)],
+        ]
+
+        text = "What would you like to do?"
+
+        # 获取chat_id
+        chat_id = None
+        if update.callback_query and update.callback_query.message:
+            chat_id = update.callback_query.message.chat_id
+        elif update.message:
+            chat_id = update.message.chat_id
+
+        if chat_id:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+            )
+        else:
+            logger.error("Could not determine chat_id to send main menu")
+
     async def check_rate(self, update: Update, cmd: str) -> bool:
         if not update.effective_user:
             await update.message.reply_text("Invalid user.")
@@ -469,14 +501,14 @@ class SolanaTelegramBot:
                 from services.user_service_sqlite import _verify_private_key
 
                 # 检查钱包是否已经存在
-                wallets = user_service.get_user_wallets(user_id)
+                wallets = self.user_service.get_user_wallets(user_id)
                 wallet_exists = any(
                     w["address"].lower() == address.lower() for w in wallets
                 )
 
                 if wallet_exists:
                     await update.message.reply_text(
-                        f"钱包 {address} 已经存在。如需重新验证，请先使用 /remove_wallet {address} 删除该钱包。"
+                        f"Wallet {address} already exists. To re-verify, please first remove the wallet using /remove_wallet {address}."
                     )
                     await self.send_main_menu(update, context)
                     return SELECT_OPTION
@@ -488,40 +520,40 @@ class SolanaTelegramBot:
 
                     if not success:
                         await update.message.reply_text(
-                            f"❌ 私钥验证失败: {verify_message}\n请检查您的私钥并重试。"
+                            f"❌ Private key verification failed: {verify_message}\nPlease check your private key and try again."
                         )
                         await self.send_main_menu(update, context)
                         return SELECT_OPTION
 
                     # 验证成功，添加钱包
-                    add_success, add_message = user_service.add_wallet(
+                    add_success, add_message = self.user_service.add_wallet(
                         user_id, address, label
                     )
                     if not add_success:
                         await update.message.reply_text(
-                            f"❌ 钱包添加失败: {add_message}"
+                            f"❌ Failed to add wallet: {add_message}"
                         )
                         await self.send_main_menu(update, context)
                         return SELECT_OPTION
 
                     # 设置钱包为已验证
-                    verify_success, _ = user_service.verify_wallet(
+                    verify_success, _ = self.user_service.verify_wallet(
                         user_id, address, "private_key", private_key
                     )
                     if not verify_success:
                         await update.message.reply_text(
-                            f"⚠️ 警告：钱包已添加，但标记为已验证状态失败。您可以稍后再次验证。"
+                            f"⚠️ Warning: Wallet has been added, but marking it as verified failed. You can verify it again later."
                         )
 
                     await update.message.reply_text(
-                        f"✅ 私钥验证成功，钱包 {address} 已添加并验证！"
+                        f"✅ Private key verification successful, wallet {address} has been added and verified!"
                     )
                     await self.send_main_menu(update, context)
                     return SELECT_OPTION
                 except Exception as e:
-                    logger.error(f"验证或添加钱包时出错: {e}")
+                    logger.error(f"Error verifying or adding wallet: {e}")
                     await update.message.reply_text(
-                        f"❌ 处理过程中出错: {str(e)}\n请稍后重试。"
+                        f"❌ Error occurred during processing: {str(e)}\nPlease try again later."
                     )
                     await self.send_main_menu(update, context)
                     return SELECT_OPTION
@@ -536,6 +568,11 @@ class SolanaTelegramBot:
                 f"Error: {str(e)}\nPlease try again with valid parameters."
             )
             await self.send_main_menu(update, context)
+            return SELECT_OPTION
+
+        # For add_wallet command, don't show the main menu as it's already shown in the command handler
+        if cmd == "add_wallet":
+            # Skip showing main menu again - it's already shown in the command handler
             return SELECT_OPTION
 
         await self.send_main_menu(update, context)
@@ -612,6 +649,15 @@ class SolanaTelegramBot:
 
             try:
                 await self.processor.execute(cmd, update, context)
+
+                # For add_wallet command, don't show the main menu if it's waiting for input
+                if (
+                    cmd == "add_wallet"
+                    and context.user_data
+                    and "pending" in context.user_data
+                ):
+                    # Skip showing main menu while waiting for private key input
+                    return WAITING_PARAM
 
                 if original_menu_callback:
                     try:

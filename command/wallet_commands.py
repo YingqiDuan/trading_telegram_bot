@@ -86,27 +86,29 @@ async def cmd_add_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(effective_user.id)
     address = context.args[0]
 
-    # 验证钱包地址格式
+    # Verify wallet address format
     if len(address) not in (43, 44):
-        return await _reply(update, "无效的钱包地址格式。", context=context)
+        return await _reply(update, "Invalid wallet address format.", context=context)
 
-    # 检查参数数量确定是否提供了标签和私钥
-    if len(context.args) == 1:  # 只有地址
+    # Check parameter count to determine if label and private key are provided
+    if len(context.args) == 1:  # Address only
         label = None
         private_key = None
-    elif len(context.args) == 2:  # 地址和第二个参数(可能是标签或私钥)
-        # 判断第二个参数是标签还是私钥
-        if len(context.args[1]) >= 32:  # 如果长度≥32，可能是私钥
+    elif (
+        len(context.args) == 2
+    ):  # Address and second parameter (possibly label or private key)
+        # Determine if the second parameter is a label or private key
+        if len(context.args[1]) >= 32:  # If length ≥32, likely private key
             label = None
             private_key = context.args[1]
-        else:  # 否则视为标签
+        else:  # Otherwise treat as label
             label = context.args[1]
             private_key = None
-    else:  # 地址、标签和私钥都有
+    else:  # Address, label and private key all provided
         label = context.args[1]
         private_key = context.args[2]
 
-    # 如果没有私钥，保存当前状态并请求用户输入私钥
+    # If no private key, save current state and request user to input private key
     if not private_key:
         if context.user_data is not None:
             context.user_data["pending"] = "add_wallet"
@@ -114,54 +116,59 @@ async def cmd_add_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["add_wallet_label"] = label
 
             await _reply(
-                update, f"请输入您的私钥以验证钱包 {address} 的所有权:", context=context
+                update,
+                f"Please enter your private key to verify ownership of wallet {address}:",
+                context=context,
             )
             return
         return await _reply(
             update,
-            "无法保存会话状态，请使用完整命令: /add_wallet [address] [label] [private_key]",
+            "Unable to save session state, please use the complete command: /add_wallet [address] [label] [private_key]",
             context=context,
         )
 
-    # 有私钥，先验证再添加
     # 先检查钱包是否已经存在
+    # First check if the wallet already exists
     wallets = user_service.get_user_wallets(user_id)
     wallet_exists = any(w["address"].lower() == address.lower() for w in wallets)
 
     if wallet_exists:
         return await _reply(
             update,
-            f"钱包 {address} 已经存在。如需重新验证，请先使用 /remove_wallet {address} 删除该钱包。",
+            f"Wallet {address} already exists. To re-verify, please first remove the wallet using /remove_wallet {address}.",
             context=context,
         )
 
     # 验证私钥
+    # Verify private key
     try:
         # 直接使用_verify_private_key函数验证
+        # Directly use _verify_private_key function to verify
         success, verify_message = _verify_private_key(address, private_key)
 
         if not success:
             return await _reply(
                 update,
-                f"❌ 私钥验证失败: {verify_message}\n请检查您的私钥并重试。",
+                f"❌ Private key verification failed: {verify_message}\nPlease check your private key and try again.",
                 context=context,
             )
 
-        # 验证成功，添加钱包
+        # Verification successful, add wallet
         add_success, add_message = user_service.add_wallet(user_id, address, label)
         if not add_success:
             return await _reply(
-                update, f"❌ 钱包添加失败: {add_message}", context=context
+                update, f"❌ Failed to add wallet: {add_message}", context=context
             )
 
         # 直接使用verify_wallet方法设置验证状态
+        # Directly use verify_wallet method to set verification status
         verify_success, _ = user_service.verify_wallet(
             user_id, address, "private_key", private_key
         )
         if not verify_success:
             await _reply(
                 update,
-                f"⚠️ 警告：钱包已添加，但标记为已验证状态失败。您可以稍后再次验证。",
+                f"⚠️ Warning: Wallet has been added, but marking it as verified failed. You can verify it again later.",
                 context=context,
             )
         else:
@@ -169,12 +176,16 @@ async def cmd_add_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_service.set_wallet_private_key(user_id, address, private_key)
 
         await _reply(
-            update, f"✅ 私钥验证成功，钱包 {address} 已添加并验证！", context=context
+            update,
+            f"✅ Private key verification successful, wallet {address} has been added and verified!",
+            context=context,
         )
     except Exception as e:
-        logger.error(f"验证或添加钱包时出错: {e}")
+        logger.error(f"Error verifying or adding wallet: {e}")
         await _reply(
-            update, f"❌ 处理过程中出错: {str(e)}\n请稍后重试。", context=context
+            update,
+            f"❌ Error occurred during processing: {str(e)}\nPlease try again later.",
+            context=context,
         )
 
 
@@ -716,20 +727,49 @@ async def _handle_send_confirmation(update: Update, context: ContextTypes.DEFAUL
                 details = result.get("details", "")
                 logger.error(f"Transaction failed: {error_msg} - Details: {details}")
 
+                # Fix empty or incomplete error messages
+                if not error_msg or error_msg == "Send failed: ":
+                    if "429" in details or "Too Many Requests" in details:
+                        error_msg = "Rate limit exceeded (HTTP 429)"
+                    elif details:
+                        error_msg = details
+                    else:
+                        error_msg = "Transaction rejected by the network"
+                    logger.info(f"Fixed empty error message to: {error_msg}")
+
                 # Create a user-friendly error message based on the error type
-                if "rate limit" in error_msg.lower():
-                    error_text = (
-                        f"❌ Transaction failed: Rate limit exceeded\n\n"
-                        f"The Solana network is busy. Please wait a few seconds and try again."
-                    )
+                if (
+                    "rate limit" in error_msg.lower()
+                    or "429" in error_msg
+                    or "Too Many Requests" in error_msg
+                ):
+                    # 检查是否尝试了两个节点
+                    if (
+                        "after trying both RPC nodes" in error_msg
+                        or "both RPC nodes" in details
+                    ):
+                        error_text = (
+                            f"❌ Transaction failed: Rate limit exceeded\n\n"
+                            f"The Solana RPC nodes are currently experiencing heavy traffic. "
+                            f"System tried both primary and backup nodes but both are rate limited.\n\n"
+                            f"Please wait a minute and try again later."
+                        )
+                    else:
+                        error_text = (
+                            f"❌ Transaction failed: Rate limit exceeded\n\n"
+                            f"The Solana network is busy. Please wait a few seconds and try again.\n"
+                            f"The system will automatically try using alternative RPC nodes on your next attempt."
+                        )
                 elif (
                     "insufficient funds" in error_msg.lower()
                     or "insufficient funds" in details.lower()
+                    or "insufficient funds for rent" in error_msg.lower()
+                    or "insufficient funds for rent" in details.lower()
                 ):
                     error_text = (
                         f"❌ Transaction failed: Insufficient funds\n\n"
                         f"Your wallet does not have enough SOL to complete this transaction.\n"
-                        f"Remember to account for transaction fees."
+                        f"Remember to account for transaction fees and required minimum balance (rent)."
                     )
                 elif (
                     "signature verification" in error_msg.lower()
@@ -741,26 +781,35 @@ async def _handle_send_confirmation(update: Update, context: ContextTypes.DEFAUL
                         f"Please use /add_wallet to re-verify your wallet with the correct private key."
                     )
                 else:
-                    error_text = (
-                        f"❌ Transaction failed: {error_msg}\n\n"
-                        f"Please try again or check your wallet details."
-                    )
+                    # 检查是否有其他常见错误
+                    if "rent" in error_msg.lower() or "rent" in details.lower():
+                        error_text = (
+                            f"❌ Transaction failed: Insufficient funds for rent\n\n"
+                            f"Solana requires accounts to maintain a minimum balance for rent.\n"
+                            f"After this transaction, your account would fall below the required minimum.\n"
+                            f"Try sending a smaller amount or add more SOL to your wallet."
+                        )
+                    else:
+                        error_text = (
+                            f"❌ Transaction failed: {error_msg}\n\n"
+                            f"Please try again or check your wallet details."
+                        )
 
                 await query.edit_message_text(error_text)
 
-            # Try to return to the main menu if possible
+            # 修改主菜单显示逻辑，不替换交易消息
             try:
                 from telegram_bot.solana_bot import SELECT_OPTION
 
                 if hasattr(
                     context.bot_data.get("bot_instance", None), "send_main_menu"
                 ):
-                    await context.bot_data["bot_instance"].send_main_menu(
-                        update, context
-                    )
+                    # 发送新消息显示主菜单，而不是编辑现有消息
+                    bot_instance = context.bot_data["bot_instance"]
+                    await bot_instance.send_main_menu_as_new_message(update, context)
                     return SELECT_OPTION
             except Exception as e:
-                logger.error(f"Error returning to main menu: {e}")
+                logger.error(f"Error showing main menu: {e}")
 
             return ConversationHandler.END
 

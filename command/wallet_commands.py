@@ -313,6 +313,7 @@ async def cmd_send_sol(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 callback_data = f"{SEND_WALLET_PREFIX}{address[:30]}...{address[-30:]}"
                 logger.info(f"Truncated callback data to {len(callback_data)} chars")
 
+            logger.info(f"Creating wallet button with callback_data: {callback_data}")
             keyboard.append(
                 [InlineKeyboardButton(display_text, callback_data=callback_data)]
             )
@@ -330,16 +331,40 @@ async def cmd_send_sol(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        await _reply(
-            update,
-            "Select a wallet to send SOL from:",
-            context=context,
-            reply_markup=reply_markup,
-        )
+        # Clear any previous message if this is from a callback query
+        if update.callback_query and update.callback_query.message:
+            try:
+                await update.callback_query.edit_message_text(
+                    "Select a wallet to send SOL from:"
+                )
+                await update.callback_query.edit_message_reply_markup(
+                    reply_markup=reply_markup
+                )
+                logger.info("Updated existing message with wallet selection")
+            except Exception as e:
+                logger.error(f"Error updating message: {e}")
+                # If we can't edit, send a new message
+                if update.callback_query.message.chat:
+                    await update.callback_query.message.reply_text(
+                        "Select a wallet to send SOL from:",
+                        reply_markup=reply_markup,
+                    )
+                    logger.info("Sent new message with wallet selection")
+        else:
+            # Normal message flow
+            await _reply(
+                update,
+                "Select a wallet to send SOL from:",
+                context=context,
+                reply_markup=reply_markup,
+            )
+            logger.info("Sent wallet selection message")
 
         # Set state in user_data
         if context.user_data is not None:
             context.user_data["send_sol_state"] = SEND_SELECT_SOURCE
+            # Set a flag to mark that we're in a send_sol flow
+            context.user_data["in_send_sol_flow"] = True
             logger.info(f"Set state to SEND_SELECT_SOURCE")
 
         return SEND_SELECT_SOURCE
@@ -363,15 +388,19 @@ async def _handle_send_wallet_selection(
         return
 
     try:
+        logger.info(f"Processing wallet selection. Callback data: {query.data}")
         await query.answer()
 
         if query.data == "send_cancel":
+            logger.info("User cancelled wallet selection")
             # Clean up user data
             if context.user_data:
                 if "send_sol_state" in context.user_data:
                     del context.user_data["send_sol_state"]
                 if "send_sol_source" in context.user_data:
                     del context.user_data["send_sol_source"]
+                if "in_send_sol_flow" in context.user_data:
+                    del context.user_data["in_send_sol_flow"]
 
             await query.edit_message_text("Transaction cancelled.")
 
@@ -624,6 +653,8 @@ async def _handle_send_confirmation(update: Update, context: ContextTypes.DEFAUL
                     del context.user_data["send_sol_destination"]
                 if "send_sol_amount" in context.user_data:
                     del context.user_data["send_sol_amount"]
+                if "in_send_sol_flow" in context.user_data:
+                    del context.user_data["in_send_sol_flow"]
 
             await query.edit_message_text("Transaction cancelled.")
 
@@ -684,6 +715,8 @@ async def _handle_send_confirmation(update: Update, context: ContextTypes.DEFAUL
                     del context.user_data["send_sol_destination"]
                 if "send_sol_amount" in context.user_data:
                     del context.user_data["send_sol_amount"]
+                if "in_send_sol_flow" in context.user_data:
+                    del context.user_data["in_send_sol_flow"]
 
                 return ConversationHandler.END
 
@@ -708,6 +741,8 @@ async def _handle_send_confirmation(update: Update, context: ContextTypes.DEFAUL
                 del context.user_data["send_sol_destination"]
             if "send_sol_amount" in context.user_data:
                 del context.user_data["send_sol_amount"]
+            if "in_send_sol_flow" in context.user_data:
+                del context.user_data["in_send_sol_flow"]
 
             # Display result
             if result.get("success", False):

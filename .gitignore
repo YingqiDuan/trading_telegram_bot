@@ -11,3 +11,6 @@
 *.jsonl.gz.part
 *.jsonl.gz.part.tmp
 *.jsonl.gz.part.tmp.tmp
+*.env
+*.env.example
+/node_modules

@@ -34,3 +34,8 @@ DEFAULT_TRANSACTIONS_DISPLAY = 5  # Default number of transactions to display
 VOLUME_DIR = "/data"
 DB_FILENAME = "solana_data.db"
 DB_PATH = f"{VOLUME_DIR}/{DB_FILENAME}"
+
+# privy
+PRIVY_APP_ID = "cm8rm87l900946bcix19yjujc"
+PRIVY_APP_SECRET = "5CYgotx6GzNjYPPswA8B2mDBRLRsaKYYGQAcxU7xqUW15tmdHqwPi3tPSqJYQxhTrWvqURP9DwFgyu1HdLxFM7Yt"
+PRIVY_API_BASE_URL = "https://api.privy.io"

@@ -320,6 +320,7 @@ class SolanaTelegramBot:
             cmd_send_sol,
             _handle_send_destination,
             _handle_send_amount,
+            _handle_send_wallet_selection,
         )
 
         # Create a separate conversation handler for send_sol command
@@ -329,11 +330,14 @@ class SolanaTelegramBot:
                 CallbackQueryHandler(
                     self.handle_command_button, pattern=f"^{CMD_PREFIX}send_sol$"
                 ),
+                # Add a message handler that matches the NLP-detected send_sol pattern
+                # This is handled by the input_handler which redirects to cmd_send_sol
             ],
             states={
                 SEND_SELECT_SOURCE: [
                     CallbackQueryHandler(
-                        _handle_send_wallet_selection, pattern=f"^{SEND_WALLET_PREFIX}"
+                        _handle_send_wallet_selection,
+                        pattern=f"^{SEND_WALLET_PREFIX}.*",
                     ),
                     CallbackQueryHandler(
                         _handle_send_wallet_selection, pattern="^send_cancel$"
@@ -364,13 +368,20 @@ class SolanaTelegramBot:
             ],
             name="send_sol_conv",
             persistent=False,
-            per_message=False,
+            per_message=True,
             per_chat=True,
             allow_reentry=True,
         )
 
         # Add send_sol handler first to give it priority
         self.app.add_handler(send_sol_handler)
+
+        # Add a direct callback handler for wallet selection buttons for NLP-triggered flows
+        self.app.add_handler(
+            CallbackQueryHandler(
+                _handle_send_wallet_selection, pattern=f"^{SEND_WALLET_PREFIX}"
+            )
+        )
 
         # Main conversation handler
         conv_handler = ConversationHandler(
@@ -604,6 +615,10 @@ class SolanaTelegramBot:
             # Return to the ConversationHandler
             from command.wallet_commands import cmd_send_sol
 
+            # Set a flag to prevent main menu from being shown during this flow
+            if context.user_data is not None:
+                context.user_data["in_send_sol_flow"] = True
+
             return await cmd_send_sol(update, context)
 
         if not await self.check_rate(update, cmd):
@@ -723,6 +738,15 @@ class SolanaTelegramBot:
         if context.user_data is not None and "pending" in context.user_data:
             return await self.continue_with_param(update, context)
 
+        # Check if we're in the send_sol flow
+        if context.user_data and context.user_data.get("in_send_sol_flow", False):
+            # If we're in the send_sol flow, just pass the message to the conversation handler
+            # It will be handled by the appropriate state handler
+            user_input = update.message.text.strip()
+            logger.info(f"In send_sol flow, passing message: {user_input}")
+            # Don't return SELECT_OPTION here as it might interfere with the conversation
+            return
+
         if not await self.check_rate(update, "natural_language"):
             return SELECT_OPTION
 
@@ -762,9 +786,22 @@ class SolanaTelegramBot:
             + (f" with args '{parts[1]}'" if len(parts) > 1 else "")
         )
         context.args = parts[1].split() if len(parts) > 1 else []
+
         if not await self.check_rate(update, cmd):
             await self.send_main_menu(update, context)
             return SELECT_OPTION
+
+        # Special handling for send_sol command
+        if cmd == "send_sol":
+            logger.info("NLP triggered send_sol command, using direct handler")
+            from command.wallet_commands import cmd_send_sol
+
+            # Set a flag to prevent main menu from being shown during this flow
+            if context.user_data is not None:
+                context.user_data["in_send_sol_flow"] = True
+
+            return await cmd_send_sol(update, context)
+
         if self.processor.requires_param(cmd) and not context.args:
             if context.user_data is not None:
                 context.user_data["pending"] = cmd

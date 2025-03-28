@@ -18,6 +18,22 @@ from .wallet_commands import (
     cmd_create_wallet,
     cmd_send_sol,
 )
+from .privy_wallet_commands import (
+    cmd_create_privy_wallet,
+    cmd_create_privy_solana_wallet,
+    cmd_privy_wallets,
+    cmd_privy_balance,
+    cmd_privy_send,
+    cmd_privy_tx_history,
+    handle_privy_wallet_selection,
+    handle_privy_send_destination,
+    handle_privy_send_amount,
+    handle_privy_send_confirmation,
+    PRIVY_SEND_SELECT_SOURCE,
+    PRIVY_SEND_INPUT_DESTINATION,
+    PRIVY_SEND_INPUT_AMOUNT,
+    PRIVY_SEND_CONFIRM,
+)
 from .general_commands import (
     get_command_list,
     HELP_TEXT,

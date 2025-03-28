@@ -41,6 +41,22 @@ from command.wallet_commands import (
     cmd_send_sol,
 )
 
+# Import Privy wallet commands
+from command.privy_wallet_commands import (
+    cmd_privy_send,
+    handle_privy_wallet_selection,
+    handle_privy_send_destination,
+    handle_privy_send_amount,
+    handle_privy_send_confirmation,
+    PRIVY_SEND_SELECT_SOURCE,
+    PRIVY_SEND_INPUT_DESTINATION,
+    PRIVY_SEND_INPUT_AMOUNT,
+    PRIVY_SEND_CONFIRM,
+    PRIVY_SEND_WALLET_PREFIX,
+    PRIVY_SEND_CONFIRM_YES,
+    PRIVY_SEND_CONFIRM_NO,
+)
+
 logger = logging.getLogger(__name__)
 SELECT_OPTION, WAITING_PARAM = 0, 1
 
@@ -50,6 +66,7 @@ user_service = UserService()
 # Callback data constants and command prefix
 SOLANA_TOPIC_CB = "topic_solana"
 WALLET_TOPIC_CB = "topic_wallet"
+PRIVY_WALLET_TOPIC_CB = "topic_privy_wallet"  # New topic for Privy wallets
 HELP_TOPIC_CB = "topic_help"
 MAIN_MENU_CB = "topic_main_menu"
 CMD_PREFIX = "cmd_"
@@ -109,25 +126,50 @@ class SolanaTelegramBot:
         update: Update,
         context: ContextTypes.DEFAULT_TYPE,
     ):
+        if not update.effective_chat:
+            return SELECT_OPTION
+
         keyboard = [
             [
-                InlineKeyboardButton("Solana 🔍", callback_data=SOLANA_TOPIC_CB),
-                InlineKeyboardButton("Wallet 🔐", callback_data=WALLET_TOPIC_CB),
+                InlineKeyboardButton(
+                    "📊 Solana Blockchain", callback_data=SOLANA_TOPIC_CB
+                ),
+                InlineKeyboardButton("🔑 Wallets", callback_data=WALLET_TOPIC_CB),
             ],
-            [InlineKeyboardButton("Help ❓", callback_data=HELP_TOPIC_CB)],
+            [
+                InlineKeyboardButton(
+                    "🔐 Privy Wallets", callback_data=PRIVY_WALLET_TOPIC_CB
+                ),
+                InlineKeyboardButton("❓ Help", callback_data=HELP_TOPIC_CB),
+            ],
         ]
 
-        text = "What would you like to do?"
-        if update.callback_query:
-            await update.callback_query.edit_message_text(text)
-            await update.callback_query.edit_message_reply_markup(
-                reply_markup=InlineKeyboardMarkup(keyboard),
-            )
-        elif update.message:
-            await update.message.reply_text(
-                text,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-            )
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        try:
+            if update.callback_query and update.callback_query.message:
+                await update.callback_query.message.edit_text(
+                    "✨ Welcome to the Solana Blockchain Assistant! ✨\n\n"
+                    "Please select an option:",
+                    reply_markup=reply_markup,
+                )
+            elif update.message:
+                await update.message.reply_text(
+                    "✨ Welcome to the Solana Blockchain Assistant! ✨\n\n"
+                    "Please select an option:",
+                    reply_markup=reply_markup,
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="✨ Welcome to the Solana Blockchain Assistant! ✨\n\n"
+                    "Please select an option:",
+                    reply_markup=reply_markup,
+                )
+        except Exception as e:
+            logger.error(f"Error sending main menu: {e}")
+
+        return SELECT_OPTION
 
     async def send_main_menu_as_new_message(
         self,
@@ -270,6 +312,48 @@ class SolanaTelegramBot:
             [InlineKeyboardButton("« Back to Main Menu", callback_data=MAIN_MENU_CB)],
         ]
 
+    async def get_privy_wallet_keyboard(self):
+        """Generate keyboard for Privy wallet commands."""
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    "Create Ethereum/Solana Wallet",
+                    callback_data=f"{CMD_PREFIX}create_privy_wallet",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "Create Solana Wallet",
+                    callback_data=f"{CMD_PREFIX}create_privy_solana",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "List My Privy Wallets", callback_data=f"{CMD_PREFIX}privy_wallets"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "Check Wallet Balance", callback_data=f"{CMD_PREFIX}privy_balance"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "Send Funds", callback_data=f"{CMD_PREFIX}privy_send"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "View Transaction History",
+                    callback_data=f"{CMD_PREFIX}privy_tx_history",
+                )
+            ],
+            [
+                InlineKeyboardButton("« Back to Main Menu", callback_data=MAIN_MENU_CB),
+            ],
+        ]
+        return keyboard
+
     async def handle_topic_selection(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ):
@@ -287,6 +371,12 @@ class SolanaTelegramBot:
             keyboard = await self.get_wallet_keyboard()
             await query.edit_message_text(
                 "🔐 Wallet Management Commands:",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+            )
+        elif query.data == PRIVY_WALLET_TOPIC_CB:
+            keyboard = await self.get_privy_wallet_keyboard()
+            await query.edit_message_text(
+                "🔐 Privy Wallet Management Commands:",
                 reply_markup=InlineKeyboardMarkup(keyboard),
             )
         elif query.data == HELP_TOPIC_CB:
@@ -308,7 +398,9 @@ class SolanaTelegramBot:
             CommandHandler("help", self.help),
         ]
         for cmd in self.processor.handlers:
-            if cmd != "send_sol":  # Skip send_sol as we'll handle it separately
+            if (
+                cmd != "send_sol" and cmd != "privy_send"
+            ):  # Skip send_sol and privy_send as we'll handle them separately
                 entry_points.append(CommandHandler(cmd, self.param_handler))
 
         # Import send_sol command states
@@ -380,6 +472,64 @@ class SolanaTelegramBot:
         self.app.add_handler(
             CallbackQueryHandler(
                 _handle_send_wallet_selection, pattern=f"^{SEND_WALLET_PREFIX}"
+            )
+        )
+
+        # Create a conversation handler for privy_send command
+        privy_send_handler = ConversationHandler(
+            entry_points=[
+                CommandHandler("privy_send", cmd_privy_send),
+                CallbackQueryHandler(
+                    self.handle_command_button, pattern=f"^{CMD_PREFIX}privy_send$"
+                ),
+            ],
+            states={
+                PRIVY_SEND_SELECT_SOURCE: [
+                    CallbackQueryHandler(
+                        handle_privy_wallet_selection,
+                        pattern=f"^{PRIVY_SEND_WALLET_PREFIX}.*",
+                    ),
+                    CallbackQueryHandler(self.cancel, pattern="^cancel$"),
+                ],
+                PRIVY_SEND_INPUT_DESTINATION: [
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND, handle_privy_send_destination
+                    )
+                ],
+                PRIVY_SEND_INPUT_AMOUNT: [
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND, handle_privy_send_amount
+                    )
+                ],
+                PRIVY_SEND_CONFIRM: [
+                    CallbackQueryHandler(
+                        handle_privy_send_confirmation,
+                        pattern=f"^{PRIVY_SEND_CONFIRM_YES}$|^{PRIVY_SEND_CONFIRM_NO}$",
+                    ),
+                ],
+                SELECT_OPTION: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.input_handler)
+                ],
+            },
+            fallbacks=[
+                CommandHandler("cancel", self.cancel),
+                CommandHandler("start", self.start),
+                CommandHandler("help", self.help),
+            ],
+            name="privy_send_conv",
+            persistent=False,
+            per_message=True,
+            per_chat=True,
+            allow_reentry=True,
+        )
+
+        # Add privy_send handler
+        self.app.add_handler(privy_send_handler)
+
+        # Add a direct callback handler for Privy wallet selection buttons
+        self.app.add_handler(
+            CallbackQueryHandler(
+                handle_privy_wallet_selection, pattern=f"^{PRIVY_SEND_WALLET_PREFIX}"
             )
         )
 

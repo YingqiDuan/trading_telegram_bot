@@ -20,7 +20,6 @@ from .wallet_commands import (
 )
 from .privy_wallet_commands import (
     cmd_create_privy_wallet,
-    cmd_create_privy_solana_wallet,
     cmd_privy_wallets,
     cmd_privy_balance,
     cmd_privy_send,

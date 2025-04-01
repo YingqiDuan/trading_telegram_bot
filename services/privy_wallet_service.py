@@ -26,16 +26,6 @@ class PrivyWalletService:
     def _make_request(
         self, method: str, endpoint: str, data: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """Make an authenticated request to the Privy API.
-
-        Args:
-            method: HTTP method (GET, POST, etc.)
-            endpoint: API endpoint (e.g., '/v1/wallets')
-            data: Request payload for POST requests
-
-        Returns:
-            Response data as a dictionary
-        """
         url = f"{self.base_url}{endpoint}"
         headers = {
             "Authorization": self.auth_header,
@@ -73,17 +63,8 @@ class PrivyWalletService:
     # Wallet Management
 
     def create_wallet(
-        self, chain_type: str = "ethereum", linked_user_id: Optional[str] = None
+        self, chain_type: str = "solana", linked_user_id: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Create a new wallet.
-
-        Args:
-            chain_type: Blockchain type ("ethereum" or "solana")
-            linked_user_id: Optional user ID to associate with this wallet
-
-        Returns:
-            Wallet details including ID and address
-        """
         data = {"chain_type": chain_type}
 
         if linked_user_id:
@@ -92,43 +73,23 @@ class PrivyWalletService:
         return self._make_request("POST", "/v1/wallets", data)
 
     def get_wallet(self, wallet_id: str) -> Dict[str, Any]:
-        """Get details of a specific wallet.
-
-        Args:
-            wallet_id: The ID of the wallet to retrieve
-
-        Returns:
-            Wallet details
-        """
         return self._make_request("GET", f"/v1/wallets/{wallet_id}")
 
     def list_wallets(
-        self, limit: int = 100, starting_after: Optional[str] = None
+        self,
+        limit: int = 100,
+        starting_after: Optional[str] = None,
+        linked_user_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """List wallets associated with the app.
-
-        Args:
-            limit: Maximum number of wallets to return
-            starting_after: Wallet ID to start listing after
-
-        Returns:
-            List of wallets
-        """
         endpoint = f"/v1/wallets?limit={limit}"
         if starting_after:
             endpoint += f"&starting_after={starting_after}"
+        if linked_user_id:
+            endpoint += f"&linked_user_id={linked_user_id}"
 
         return self._make_request("GET", endpoint)
 
     def delete_wallet(self, wallet_id: str) -> Dict[str, Any]:
-        """Delete a wallet.
-
-        Args:
-            wallet_id: The ID of the wallet to delete
-
-        Returns:
-            Deletion confirmation
-        """
         return self._make_request("DELETE", f"/v1/wallets/{wallet_id}")
 
     # Transaction Management
@@ -136,20 +97,28 @@ class PrivyWalletService:
     def get_balance(
         self, wallet_id: str, token_address: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Get the balance of a wallet.
+        try:
+            endpoint = f"/v1/wallets/{wallet_id}/balance"
+            if token_address:
+                endpoint += f"?token_address={token_address}"
 
-        Args:
-            wallet_id: The ID of the wallet
-            token_address: Optional token address to check balance for
-
-        Returns:
-            Balance information
-        """
-        endpoint = f"/v1/wallets/{wallet_id}/balance"
-        if token_address:
-            endpoint += f"?token_address={token_address}"
-
-        return self._make_request("GET", endpoint)
+            return self._make_request("GET", endpoint)
+        except requests.exceptions.HTTPError as e:
+            if hasattr(e, "response") and e.response.status_code == 404:
+                # If wallet not found, try to get wallet info first to confirm it exists
+                try:
+                    self.get_wallet(wallet_id)
+                    # If we get here, wallet exists but balance endpoint failed
+                    logger.warning(
+                        f"Wallet {wallet_id} exists but balance endpoint returned 404"
+                    )
+                    raise
+                except:
+                    # Wallet doesn't exist
+                    logger.error(f"Wallet {wallet_id} not found")
+                    raise
+            else:
+                raise
 
     def send_transaction(
         self,
@@ -161,20 +130,6 @@ class PrivyWalletService:
         max_fee_per_gas: Optional[str] = None,
         max_priority_fee_per_gas: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Send a transaction from a wallet.
-
-        Args:
-            wallet_id: The ID of the source wallet
-            to_address: Recipient address
-            amount: Amount to send (in wei for Ethereum)
-            token_address: Optional token address for token transfers
-            gas_limit: Optional gas limit
-            max_fee_per_gas: Optional max fee per gas
-            max_priority_fee_per_gas: Optional max priority fee per gas
-
-        Returns:
-            Transaction details
-        """
         data = {"to_address": to_address, "amount": amount}
 
         # Add optional parameters if provided
@@ -190,29 +145,11 @@ class PrivyWalletService:
         return self._make_request("POST", f"/v1/wallets/{wallet_id}/send", data)
 
     def get_transaction(self, wallet_id: str, transaction_id: str) -> Dict[str, Any]:
-        """Get details of a specific transaction.
-
-        Args:
-            wallet_id: The ID of the wallet
-            transaction_id: The ID of the transaction
-
-        Returns:
-            Transaction details
-        """
         return self._make_request(
             "GET", f"/v1/wallets/{wallet_id}/transactions/{transaction_id}"
         )
 
     def list_transactions(self, wallet_id: str, limit: int = 10) -> Dict[str, Any]:
-        """List transactions for a wallet.
-
-        Args:
-            wallet_id: The ID of the wallet
-            limit: Maximum number of transactions to return
-
-        Returns:
-            List of transactions
-        """
         return self._make_request(
             "GET", f"/v1/wallets/{wallet_id}/transactions?limit={limit}"
         )
@@ -222,14 +159,6 @@ class PrivyWalletService:
     def create_solana_wallet(
         self, linked_user_id: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Create a new Solana wallet.
-
-        Args:
-            linked_user_id: Optional user ID to associate with this wallet
-
-        Returns:
-            Wallet details including ID and address
-        """
         return self.create_wallet(chain_type="solana", linked_user_id=linked_user_id)
 
     def send_solana_transaction(
@@ -239,20 +168,37 @@ class PrivyWalletService:
         amount: str,
         token_address: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Send a Solana transaction from a wallet.
+        # Privy的Solana交易需要使用正确的方法和参数
+        # 参考文档：https://docs.privy.io/api-reference/wallets/solana/sign-and-send-transaction
 
-        Args:
-            wallet_id: The ID of the source wallet
-            to_address: Recipient address
-            amount: Amount to send (in lamports for SOL)
-            token_address: Optional SPL token mint address for token transfers
+        # 对于简单的SOL转账，我们使用rpc端点和signAndSendTransaction方法
+        # 注意：这里的实现可能需要根据Privy的具体API要求进行调整
 
-        Returns:
-            Transaction details
-        """
-        data = {"to_address": to_address, "amount": amount}
+        # 1. 将金额转换为lamports（SOL的最小单位，1 SOL = 10^9 lamports）
+        try:
+            # 如果amount是浮点数字符串（例如"0.001"），转换为lamports
+            if "." in amount:
+                sol_amount = float(amount)
+                lamports = int(sol_amount * 1e9)
+            else:
+                # 如果已经是整数字符串，假设已经是lamports
+                lamports = int(amount)
+        except ValueError:
+            raise ValueError(f"Invalid amount format: {amount}")
+
+        logger.info(f"Converting {amount} SOL to {lamports} lamports")
+
+        # 2. 构建RPC请求
+        rpc_data = {
+            "method": "signAndSendTransaction",
+            "caip2": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+            "params": {"to_address": to_address, "amount": str(lamports)},
+        }
 
         if token_address:
-            data["token_address"] = token_address
+            rpc_data["params"]["token_address"] = token_address
 
-        return self._make_request("POST", f"/v1/wallets/{wallet_id}/send", data)
+        logger.info(
+            f"Sending RPC request to wallet {wallet_id}: {json.dumps(rpc_data)}"
+        )
+        return self._make_request("POST", f"/v1/wallets/{wallet_id}/rpc", rpc_data)

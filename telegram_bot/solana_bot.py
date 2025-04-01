@@ -15,7 +15,7 @@ from typing import List
 
 sys.path.append(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-)
+)  # 方便导入模块
 from config import TELEGRAM_BOT_TOKEN
 from services.solana_rpc_service import SolanaService
 from services.openai_service import OpenAIService
@@ -43,7 +43,11 @@ from command.wallet_commands import (
 
 # Import Privy wallet commands
 from command.privy_wallet_commands import (
+    cmd_create_privy_wallet,
+    cmd_privy_wallets,
+    cmd_privy_balance,
     cmd_privy_send,
+    cmd_privy_tx_history,
     handle_privy_wallet_selection,
     handle_privy_send_destination,
     handle_privy_send_amount,
@@ -72,6 +76,66 @@ MAIN_MENU_CB = "topic_main_menu"
 CMD_PREFIX = "cmd_"
 
 
+# Function from solana_bot_privy_patch.py
+def add_privy_handlers(bot_instance):
+    """
+    Add Privy wallet handlers to the bot instance.
+
+    Args:
+        bot_instance: The instance of SolanaTelegramBot
+    """
+    # Create a conversation handler for privy_send command
+    privy_send_handler = ConversationHandler(
+        entry_points=[
+            CommandHandler("privy_send", cmd_privy_send),
+            CallbackQueryHandler(
+                bot_instance.handle_command_button, pattern=f"^{CMD_PREFIX}privy_send$"
+            ),
+        ],
+        states={
+            PRIVY_SEND_SELECT_SOURCE: [
+                CallbackQueryHandler(
+                    handle_privy_wallet_selection,
+                    pattern=f"^{PRIVY_SEND_WALLET_PREFIX}.*",
+                ),
+                CallbackQueryHandler(bot_instance.cancel, pattern="^cancel$"),
+            ],
+            PRIVY_SEND_INPUT_DESTINATION: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND, handle_privy_send_destination
+                )
+            ],
+            PRIVY_SEND_INPUT_AMOUNT: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND, handle_privy_send_amount
+                )
+            ],
+            PRIVY_SEND_CONFIRM: [
+                CallbackQueryHandler(
+                    handle_privy_send_confirmation,
+                    pattern=f"^{PRIVY_SEND_CONFIRM_YES}$|^{PRIVY_SEND_CONFIRM_NO}$",
+                ),
+            ],
+            SELECT_OPTION: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND, bot_instance.input_handler
+                )
+            ],
+        },
+        fallbacks=[
+            CommandHandler("cancel", bot_instance.cancel),
+            CommandHandler("start", bot_instance.start),
+            CommandHandler("help", bot_instance.help),
+        ],
+        name="privy_send_conv",
+        persistent=False,
+        allow_reentry=True,
+    )
+
+    # Add privy_send handler to the application
+    bot_instance.app.add_handler(privy_send_handler)
+
+
 class SolanaTelegramBot:
     def __init__(self):
         self.solana_service = SolanaService()
@@ -84,6 +148,9 @@ class SolanaTelegramBot:
         self.app.bot_data["bot_instance"] = self
 
         self.setup_handlers()
+
+        # Apply Privy handlers
+        add_privy_handlers(self)
 
     async def help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [
@@ -235,6 +302,22 @@ class SolanaTelegramBot:
                     context.user_data.pop("send_sol_destination", None)
                     context.user_data.pop("send_sol_amount", None)
 
+                # Clean up any in_send_sol_flow flag
+                if "in_send_sol_flow" in context.user_data:
+                    context.user_data.pop("in_send_sol_flow", None)
+
+                # Clean up any privy_send state
+                if "privy_send_state" in context.user_data:
+                    context.user_data.pop("privy_send_state", None)
+                    context.user_data.pop("privy_send_from_address", None)
+                    context.user_data.pop("privy_send_to_address", None)
+                    context.user_data.pop("privy_send_amount", None)
+                    context.user_data.pop("privy_send_wallet_id", None)
+
+                # Clean up any in_privy_send_flow flag
+                if "in_privy_send_flow" in context.user_data:
+                    context.user_data.pop("in_privy_send_flow", None)
+
         await self.send_main_menu(update, context)
         return SELECT_OPTION
 
@@ -317,14 +400,8 @@ class SolanaTelegramBot:
         keyboard = [
             [
                 InlineKeyboardButton(
-                    "Create Ethereum/Solana Wallet",
-                    callback_data=f"{CMD_PREFIX}create_privy_wallet",
-                )
-            ],
-            [
-                InlineKeyboardButton(
                     "Create Solana Wallet",
-                    callback_data=f"{CMD_PREFIX}create_privy_solana",
+                    callback_data=f"{CMD_PREFIX}create_privy_wallet",
                 )
             ],
             [
@@ -337,11 +414,7 @@ class SolanaTelegramBot:
                     "Check Wallet Balance", callback_data=f"{CMD_PREFIX}privy_balance"
                 )
             ],
-            [
-                InlineKeyboardButton(
-                    "Send Funds", callback_data=f"{CMD_PREFIX}privy_send"
-                )
-            ],
+            [InlineKeyboardButton("Send Sol", callback_data=f"{CMD_PREFIX}privy_send")],
             [
                 InlineKeyboardButton(
                     "View Transaction History",
@@ -415,6 +488,16 @@ class SolanaTelegramBot:
             _handle_send_wallet_selection,
         )
 
+        # Add a global handler for privy_send text messages with high priority
+        self.app.add_handler(
+            MessageHandler(
+                filters.TEXT & ~filters.COMMAND,
+                self.privy_send_message_handler,
+                block=False,
+            ),
+            group=0,  # 最高优先级
+        )
+
         # Create a separate conversation handler for send_sol command
         send_sol_handler = ConversationHandler(
             entry_points=[
@@ -475,61 +558,18 @@ class SolanaTelegramBot:
             )
         )
 
-        # Create a conversation handler for privy_send command
-        privy_send_handler = ConversationHandler(
-            entry_points=[
-                CommandHandler("privy_send", cmd_privy_send),
-                CallbackQueryHandler(
-                    self.handle_command_button, pattern=f"^{CMD_PREFIX}privy_send$"
-                ),
-            ],
-            states={
-                PRIVY_SEND_SELECT_SOURCE: [
-                    CallbackQueryHandler(
-                        handle_privy_wallet_selection,
-                        pattern=f"^{PRIVY_SEND_WALLET_PREFIX}.*",
-                    ),
-                    CallbackQueryHandler(self.cancel, pattern="^cancel$"),
-                ],
-                PRIVY_SEND_INPUT_DESTINATION: [
-                    MessageHandler(
-                        filters.TEXT & ~filters.COMMAND, handle_privy_send_destination
-                    )
-                ],
-                PRIVY_SEND_INPUT_AMOUNT: [
-                    MessageHandler(
-                        filters.TEXT & ~filters.COMMAND, handle_privy_send_amount
-                    )
-                ],
-                PRIVY_SEND_CONFIRM: [
-                    CallbackQueryHandler(
-                        handle_privy_send_confirmation,
-                        pattern=f"^{PRIVY_SEND_CONFIRM_YES}$|^{PRIVY_SEND_CONFIRM_NO}$",
-                    ),
-                ],
-                SELECT_OPTION: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.input_handler)
-                ],
-            },
-            fallbacks=[
-                CommandHandler("cancel", self.cancel),
-                CommandHandler("start", self.start),
-                CommandHandler("help", self.help),
-            ],
-            name="privy_send_conv",
-            persistent=False,
-            per_message=True,
-            per_chat=True,
-            allow_reentry=True,
-        )
-
-        # Add privy_send handler
-        self.app.add_handler(privy_send_handler)
-
         # Add a direct callback handler for Privy wallet selection buttons
         self.app.add_handler(
             CallbackQueryHandler(
                 handle_privy_wallet_selection, pattern=f"^{PRIVY_SEND_WALLET_PREFIX}"
+            )
+        )
+
+        # Add a direct callback handler for Privy send confirmation buttons
+        self.app.add_handler(
+            CallbackQueryHandler(
+                handle_privy_send_confirmation,
+                pattern=f"^{PRIVY_SEND_CONFIRM_YES}$|^{PRIVY_SEND_CONFIRM_NO}$",
             )
         )
 
@@ -771,6 +811,29 @@ class SolanaTelegramBot:
 
             return await cmd_send_sol(update, context)
 
+        # Special handling for privy_send command from menu button
+        if cmd == "privy_send":
+            # This will be handled by the ConversationHandler,
+            # we just remove the keyboard and let cmd_privy_send handle the rest
+            try:
+                await query.edit_message_reply_markup(reply_markup=None)
+            except Exception:
+                pass
+
+            try:
+                await query.edit_message_text("Starting Privy send SOL operation...")
+            except Exception:
+                pass
+
+            # Return to the ConversationHandler
+            from command.privy_wallet_commands import cmd_privy_send
+
+            # Set a flag to prevent main menu from being shown during this flow
+            if context.user_data is not None:
+                context.user_data["in_privy_send_flow"] = True
+
+            return await cmd_privy_send(update, context)
+
         if not await self.check_rate(update, cmd):
             return SELECT_OPTION
         if self.processor.requires_param(cmd):
@@ -897,6 +960,14 @@ class SolanaTelegramBot:
             # Don't return SELECT_OPTION here as it might interfere with the conversation
             return
 
+        # Check if we're in the privy_send flow - let privy_send_message_handler handle it
+        if context.user_data and context.user_data.get("in_privy_send_flow", False):
+            # Skip processing this message as it will be handled by privy_send_message_handler
+            logger.info(
+                f"Skipping message in input_handler as it's in privy_send flow: {update.message.text}"
+            )
+            return
+
         if not await self.check_rate(update, "natural_language"):
             return SELECT_OPTION
 
@@ -969,6 +1040,48 @@ class SolanaTelegramBot:
             )
             await self.send_main_menu(update, context)
             return SELECT_OPTION
+
+    async def privy_send_message_handler(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
+        """全局处理privy_send流程中的消息"""
+        if not update.message or not update.message.text:
+            return
+
+        # 只处理privy_send流程中的消息
+        if not context.user_data or not context.user_data.get(
+            "in_privy_send_flow", False
+        ):
+            return
+
+        logger.info(f"Privy send message handler: {update.message.text}")
+        logger.info(
+            f"Current privy_send_state: {context.user_data.get('privy_send_state')}"
+        )
+
+        # 根据当前privy_send状态调用相应的处理函数
+        privy_state = context.user_data.get("privy_send_state")
+
+        if privy_state == PRIVY_SEND_INPUT_DESTINATION:
+            from command.privy_wallet_commands import handle_privy_send_destination
+
+            return await handle_privy_send_destination(update, context)
+
+        elif privy_state == PRIVY_SEND_INPUT_AMOUNT:
+            from command.privy_wallet_commands import handle_privy_send_amount
+
+            return await handle_privy_send_amount(update, context)
+
+        elif privy_state == PRIVY_SEND_CONFIRM:
+            # 在确认状态下收到文本消息时，提醒用户点击按钮
+            await update.message.reply_text(
+                "Please click the Confirm or Cancel button to proceed with the transaction."
+            )
+            return
+
+        # 如果没有匹配的状态，只记录日志但不处理
+        logger.warning(f"Unhandled privy_send state: {privy_state}")
+        return
 
     def run(self):
         logger.info("Starting Solana Telegram Bot")

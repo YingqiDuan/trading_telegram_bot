@@ -23,8 +23,8 @@ HELP_TEXT = (
     "• /create_privy_solana - Create a new Privy Solana wallet\n"
     "• /privy_wallets - List your Privy wallets\n"
     "• /privy_balance - Check your Privy wallet balance\n"
-    "• /privy_send - Send funds from your Privy wallet\n"
-    "• /privy_tx_history - View transaction history for a Privy wallet\n\n"
+    "• /privy_send - Send sol from your Privy wallet\n"
+    "• /privy_tx_history - View transaction history directly from blockchain\n\n"
     "🌐 <b>NETWORK INFORMATION</b>\n"
     "• /latest_block - Get latest block\n"
     "• /network_status - Check network status\n"
@@ -60,8 +60,8 @@ def get_command_list():
         ("create_privy_solana", "Create a new Privy Solana wallet"),
         ("privy_wallets", "List your Privy wallets"),
         ("privy_balance", "Check Privy wallet balance"),
-        ("privy_send", "Send funds from Privy wallet"),
-        ("privy_tx_history", "View Privy wallet transactions"),
+        ("privy_send", "Send sol from Privy wallet"),
+        ("privy_tx_history", "View transactions directly from blockchain"),
         ("help", "Show help info"),
         ("cancel", "Cancel current operation"),
     ]

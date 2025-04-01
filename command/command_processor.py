@@ -19,7 +19,6 @@ from . import (
     cmd_create_wallet,
     cmd_send_sol,
     cmd_create_privy_wallet,
-    cmd_create_privy_solana_wallet,
     cmd_privy_wallets,
     cmd_privy_balance,
     cmd_privy_send,
@@ -97,11 +96,6 @@ class CommandProcessor:
                 "prompt": "Enter chain type (ethereum/solana) and optional label:",
                 "requires": False,
             },
-            "create_privy_solana": {
-                "handler": cmd_create_privy_solana_wallet,
-                "prompt": "Enter optional label for the new Solana wallet:",
-                "requires": False,
-            },
             "privy_wallets": {
                 "handler": cmd_privy_wallets,
                 "requires": False,
@@ -113,12 +107,12 @@ class CommandProcessor:
             },
             "privy_send": {
                 "handler": cmd_privy_send,
-                "prompt": "Follow the steps to send funds from your Privy wallet:",
+                "prompt": "Follow the steps to send sol from your Privy wallet:",
                 "requires": False,
             },
             "privy_tx_history": {
                 "handler": cmd_privy_tx_history,
-                "prompt": "Enter wallet address and optional limit:",
+                "prompt": "Enter Privy wallet address to fetch blockchain transactions (optional: limit):",
                 "requires": True,
             },
         }
